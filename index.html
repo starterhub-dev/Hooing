@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>FAKA24 Decoder Lab</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1120;--panel:#121c2d;--line:#29364b;--text:#edf3ff;--muted:#9cabc2;--accent:#7c9cff;--good:#70d6a5;--bad:#ff8f9b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#17243c 0,#0b1120 55%);color:var(--text);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+main{max-width:760px;margin:auto;padding:28px 18px 48px}.brand{font-size:12px;letter-spacing:.18em;color:var(--accent);font-weight:800}.hero{margin:12px 0 24px}.hero h1{font-size:clamp(27px,5vw,38px);line-height:1.15;margin:0 0 12px}.hero p,.muted{color:var(--muted)}.panel{background:rgba(18,28,45,.92);border:1px solid var(--line);border-radius:18px;padding:20px;margin:16px 0;box-shadow:0 16px 45px #0002}
+label{display:block;font-weight:700;margin-bottom:9px}textarea{width:100%;min-height:135px;resize:vertical;border:1px solid #3a4962;background:#0b1322;color:var(--text);border-radius:12px;padding:14px;font:15px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;outline:none}textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #7c9cff20}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button{border:0;border-radius:10px;padding:11px 16px;font-weight:750;font-size:15px;cursor:pointer}.primary{background:var(--accent);color:#0b1120}.secondary{background:#26334a;color:var(--text)}button:disabled{opacity:.45;cursor:not-allowed}
+.notice{font-size:13px;color:var(--muted);margin-top:12px}.error{color:var(--bad);margin-top:10px}.result{display:none}.field{padding:13px 0;border-bottom:1px solid var(--line)}.field:last-of-type{border-bottom:0}.field-label{font-size:12px;color:var(--muted);margin-bottom:5px}.field-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;user-select:text}.otp{font-size:34px;letter-spacing:.14em;font-weight:850;color:var(--good)}.instructions{background:#0b1322;border-radius:12px;padding:14px;color:#d7e2f5;margin-top:14px}.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:3px 9px;font-size:12px;color:var(--muted)}
+footer{color:var(--muted);font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">FAKA24 · LOCAL TOOL</div>
+  <section class="hero">
+    <h1>Decoder Lab</h1>
+    <p>按空格或换行拆分卡密：前两段作为账号和密码，第三段至末尾作为 2FA 密钥。动态验证码仅在当前浏览器本地计算。</p>
+    <span class="pill">本地处理 · 不主动上传</span>
+  </section>
+  <section class="panel">
+    <label for="rawInput">原始卡密</label>
+    <textarea id="rawInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴你有权处理的完整卡密……"></textarea>
+    <div class="actions">
+      <button class="primary" id="parseBtn" type="button">解析卡密</button>
+      <button class="secondary" id="clearBtn" type="button">清空内容</button>
+    </div>
+    <div id="error" class="error" role="alert"></div>
+    <p class="notice">请只处理你有权访问的账号。避免在公共设备上粘贴凭据；清空页面后再交还设备。</p>
+  </section>
+  <section class="panel result" id="resultCard" aria-live="polite">
+    <h2 style="margin:0 0 8px">解析结果</h2>
+    <div class="field"><div class="field-label">账号</div><div class="field-value" id="account"></div></div>
+    <div class="field"><div class="field-label">密码</div><div class="field-value" id="password"></div></div>
+    <div class="field"><div class="field-label">2FA 密钥（已去除空格）</div><div class="field-value" id="secret"></div></div>
+    <div class="field"><div class="field-label">当前 6 位验证码</div><div class="otp" id="otp">------</div><div class="notice" id="timer"></div></div>
+    <div class="instructions">
+      <div>2FA 验证码为 6 位数字，通常每 30 秒更新一次。</div>
+      <div>请尽快在你有权登录的页面使用验证码，不要向他人公开分享 2FA 密钥。</div>
+    </div>
+    <div class="actions"><button class="primary" id="copyBtn" type="button">复制整理结果</button></div>
+    <p class="notice">验证码由浏览器 Web Crypto API 在本地计算。请确认设备时间准确；此工具不验证账号或密码是否有效。</p>
+  </section>
+  <footer>FAKA24 Decoder Lab · 不要将真实凭据截图或公开发布。此页面没有后端接口，不会主动向服务器发送输入内容。</footer>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let refreshHandle = null;
+let lastOutput = '';
+function base32Bytes(value) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const clean = value.toUpperCase().replace(/=+$/,'').replace(/\s+/g,'');
+  let bits = '';
+  for (const ch of clean) {
+    const n = alphabet.indexOf(ch);
+    if (n < 0) throw new Error('2FA 密钥包含非 Base32 字符，请检查是否复制完整。');
+    bits += n.toString(2).padStart(5,'0');
+  }
+  const bytes = [];
+  for (let i=0; i+8<=bits.length; i+=8) bytes.push(parseInt(bits.slice(i,i+8),2));
+  if (!bytes.length) throw new Error('2FA 密钥为空或格式不正确。');
+  return new Uint8Array(bytes);
+}
+async function generateTotp(secret) {
+  const keyBytes = base32Bytes(secret);
+  const counter = Math.floor(Date.now()/1000/30);
+  const counterBytes = new Uint8Array(8);
+  let n = counter;
+  for (let i=7;i>=0;i--) { counterBytes[i] = n & 255; n = Math.floor(n/256); }
+  const key = await crypto.subtle.importKey('raw', keyBytes, {name:'HMAC',hash:'SHA-1'}, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC',key,counterBytes));
+  const offset = mac[mac.length-1] & 15;
+  const binary = ((mac[offset]&127)<<24) | ((mac[offset+1]&255)<<16) | ((mac[offset+2]&255)<<8) | (mac[offset+3]&255);
+  return String(binary % 1000000).padStart(6,'0');
+}
+async function updateOtp(secret) {
+  try { $('otp').textContent = await generateTotp(secret); $('timer').textContent = '下一次更新约 ' + (30-Math.floor(Date.now()/1000)%30) + ' 秒'; }
+  catch (err) { $('otp').textContent = '不可用'; $('timer').textContent = err.message || '无法计算验证码'; }
+}
+async function parseFields() {
+  $('error').textContent = '';
+  const raw = $('rawInput').value.trim();
+  const parts = raw ? raw.split(/\s+/) : [];
+  if (parts.length < 3) { $('resultCard').style.display='none'; $('error').textContent='内容不足：至少需要账号、密码和 2FA 密钥三部分。'; return; }
+  const account = parts[0], password = parts[1], secret = parts.slice(2).join('');
+  $('account').textContent = account;
+  $('password').textContent = password;
+  $('secret').textContent = secret;
+  $('resultCard').style.display = 'block';
+  lastOutput = '账号：'+account+'\n密码：'+password+'\n2FA 密钥：'+secret+'\n\n2FA 验证码为 6 位数字，通常每 30 秒更新一次。\n请尽快在你有权登录的页面使用验证码，不要向他人公开分享 2FA 密钥。';
+  if (!window.crypto || !crypto.subtle) {
+    $('otp').textContent = '不可用';
+    $('timer').textContent = '当前浏览器环境不支持安全的本地计算，请在支持 Web Crypto 的 HTTPS 页面打开。';
+    return;
+  }
+  await updateOtp(secret);
+  if (refreshHandle) clearInterval(refreshHandle);
+  refreshHandle = setInterval(() => updateOtp(secret), 1000);
+}
+function clearFields() {
+  $('rawInput').value=''; $('error').textContent=''; $('resultCard').style.display='none';
+  $('account').textContent=''; $('password').textContent=''; $('secret').textContent=''; $('otp').textContent='------'; $('timer').textContent='';
+  lastOutput='';
+  if (refreshHandle) { clearInterval(refreshHandle); refreshHandle=null; }
+}
+$('parseBtn').addEventListener('click', parseFields);
+$('clearBtn').addEventListener('click', clearFields);
+$('copyBtn').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(lastOutput); $('copyBtn').textContent='已复制'; }
+  catch { $('copyBtn').textContent='请手动复制'; }
+});
+</script>
+</body>
+</html>
