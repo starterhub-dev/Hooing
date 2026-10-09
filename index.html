@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111318">
+<title>-ing · 文本整理器</title>
+<style>
+:root{color-scheme:dark;--bg:#111318;--panel:#1a1d24;--line:#303541;--text:#eef0f6;--muted:#a3a9b8;--accent:#9fc5ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{width:min(820px,100%);margin:0 auto;padding:28px 18px 48px}
+header{margin-bottom:24px}h1{font-size:clamp(28px,6vw,40px);margin:0 0 8px;letter-spacing:-.04em}p{color:var(--muted);margin:6px 0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0}
+label{display:block;font-weight:650;margin-bottom:8px}textarea{width:100%;min-height:150px;resize:vertical;background:#0d0f14;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:13px;font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;outline:none}textarea:focus{border-color:var(--accent)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button{border:1px solid var(--line);border-radius:10px;padding:10px 15px;background:#252a34;color:var(--text);font-weight:650;cursor:pointer}button.primary{background:var(--accent);border-color:var(--accent);color:#101827}button:active{transform:translateY(1px)}
+.output{white-space:pre-wrap;overflow-wrap:anywhere;min-height:100px;background:#0d0f14;border:1px solid var(--line);border-radius:10px;padding:14px;font:14px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}
+.note{font-size:13px;color:var(--muted)}.status{min-height:22px;font-size:13px;color:var(--accent);margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>-ing <span style="color:var(--accent)">/</span> 文本整理器</h1>
+  <p>按空格拆分字段，快速整理成可读格式。</p>
+</header>
+<section class="panel">
+  <label for="source">输入原始文本</label>
+  <textarea id="source" spellcheck="false" placeholder="按空格分隔字段，例如：字段1 字段2 字段3 字段4"></textarea>
+  <p class="note">规则：第 1、2 段分别作为账号和密码；第 3 段到最后一段合并为 2FA 内容。连续空格会自动忽略。</p>
+  <div class="actions">
+    <button class="primary" id="organize">整理字段</button>
+    <button id="clear">清空</button>
+  </div>
+  <div class="status" id="inputStatus" role="status" aria-live="polite"></div>
+</section>
+<section class="panel">
+  <label for="result">整理结果</label>
+  <div class="output" id="result" aria-live="polite">整理后的内容会显示在这里。</div>
+  <div class="actions"><button class="primary" id="copy">复制结果</button></div>
+  <div class="status" id="copyStatus" role="status" aria-live="polite"></div>
+</section>
+<section class="panel">
+  <strong>说明</strong>
+  <p>本工具只在当前浏览器中处理输入内容，不会主动上传或保存文本。</p>
+  <p>请仅处理你有权使用的数据，并避免在公共设备上输入真实密码或验证码。</p>
+</section>
+</main>
+<script>
+const source = document.querySelector('#source');
+const result = document.querySelector('#result');
+const inputStatus = document.querySelector('#inputStatus');
+const copyStatus = document.querySelector('#copyStatus');
+function organize(){
+  const parts = source.value.trim().split(/\s+/u).filter(Boolean);
+  copyStatus.textContent = '';
+  if (!source.value.trim()) {
+    result.textContent = '整理后的内容会显示在这里。';
+    inputStatus.textContent = '请先输入内容。';
+    return;
+  }
+  if (parts.length < 3) {
+    result.textContent = '';
+    inputStatus.textContent = '字段不足：至少需要 3 段（账号、密码、2FA）。';
+    return;
+  }
+  result.textContent = '账号：' + parts[0] + '\n密码：' + parts[1] + '\n2FA：' + parts.slice(2).join(' ');
+  inputStatus.textContent = '整理完成，共识别 ' + parts.length + ' 段。';
+}
+document.querySelector('#organize').addEventListener('click', organize);
+document.querySelector('#clear').addEventListener('click', () => {
+  source.value = '';
+  result.textContent = '整理后的内容会显示在这里。';
+  inputStatus.textContent = '';
+  copyStatus.textContent = '';
+  source.focus();
+});
+document.querySelector('#copy').addEventListener('click', async () => {
+  const text = result.textContent;
+  if (!text || text === '整理后的内容会显示在这里。') {
+    copyStatus.textContent = '没有可复制的结果。';
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    copyStatus.textContent = '已复制到剪贴板。';
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(result);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    copyStatus.textContent = '浏览器未允许自动复制，请长按选中结果后复制。';
+  }
+});
+</script>
+</body>
+</html>
