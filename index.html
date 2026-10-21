@@ -533,86 +533,63 @@ function chooseAsteroidDepth(){
   if(r<.69)return -.7-Math.random()*2.2;       // mid-distance rocks
   return -2.9-Math.random()*2.7;                // smaller, deeper silhouettes
 }
-function asteroidViewScale(){
-  return Math.max(.1,camera.position.z-record.planeZ)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
+function asteroidViewScale(record){
+  const distance=Math.max(1,camera.position.z-record.planeZ);
+  return distance*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
 }
 function setAsteroidNdcPosition(record,nx,ny){
-  const halfY=asteroidViewScale(),halfX=halfY*camera.aspect;
+  const halfY=asteroidViewScale(record),halfX=halfY*camera.aspect;
   record.group.position.set(nx*halfX,ny*halfY,record.planeZ);
   record.ndcX=nx;record.ndcY=ny;
   record.group.visible=record.active;
 }
-function asteroidPixelDiameter(record){
-  const planeZ=Number.isFinite(record.planeZ)?record.planeZ:record.group.position.z;
-  const dist=Math.max(.1,camera.position.z-planeZ);
-  return record.scale*innerHeight/(dist*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
-}
 function asteroidSpotClear(nx,ny,record){
-  const baseGap=Math.max(84,Math.min(innerWidth,innerHeight)*.18);
+  const gap=Math.max(78,Math.min(innerWidth,innerHeight)*.13);
   for(const other of asteroidRecords){
     if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
     const dx=(nx-other.ndcX)*innerWidth*.5;
     const dy=(ny-other.ndcY)*innerHeight*.5;
-    const sizePad=(asteroidPixelDiameter(record)+asteroidPixelDiameter(other))*.16;
-    if(Math.hypot(dx,dy)<baseGap+sizePad)return false;
+    if(Math.hypot(dx,dy)<gap)return false;
   }
   return true;
 }
 function layoutAsteroid(record){
   record.planeZ=chooseAsteroidDepth();
   resetAsteroidMotion(record);
-  let best={x:0,y:0,score:-Infinity},placed=false;
-  const halfY=asteroidViewScale(),halfX=halfY*camera.aspect;
-  // Rejection-sample the entire viewport, preferring roomy positions rather than orbiting the main body.
-  for(let n=0;n<240;n++){
-    const nx=(Math.random()*1.82)-.91;
-    const ny=(Math.random()*1.82)-.91;
+  let best={x:(Math.random()-.5)*1.7,y:(Math.random()-.5)*1.7,score:-Infinity};
+  for(let n=0;n<100;n++){
+    const nx=(Math.random()*1.82)-.91,ny=(Math.random()*1.82)-.91;
     let nearest=Infinity;
     for(const other of asteroidRecords){
       if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
-      const dx=(nx-other.ndcX)*innerWidth*.5;
-      const dy=(ny-other.ndcY)*innerHeight*.5;
-      const gap=Math.hypot(dx,dy)-(asteroidPixelDiameter(record)+asteroidPixelDiameter(other))*.16;
-      nearest=Math.min(nearest,gap);
+      nearest=Math.min(nearest,Math.hypot((nx-other.ndcX)*innerWidth*.5,(ny-other.ndcY)*innerHeight*.5));
     }
     if(nearest>best.score)best={x:nx,y:ny,score:nearest};
-    if(asteroidSpotClear(nx,ny,record)){best={x:nx,y:ny,score:Infinity};placed=true;break;}
+    if(asteroidSpotClear(nx,ny,record)){best={x:nx,y:ny,score:Infinity};break;}
   }
-  // If the viewport is crowded, select the candidate with the largest nearest-neighbour gap.
   setAsteroidNdcPosition(record,best.x,best.y);
-  record.group.position.set(best.x*halfX,best.y*halfY,record.planeZ);
-  record.ndcX=best.x;record.ndcY=best.y;
 }
 function wrapAsteroidAtEdge(record,nx,ny){
-  const oldX=nx,oldY=ny;
   let edgeX=nx,edgeY=ny;
   if(nx>1.06)edgeX=-1.045;else if(nx< -1.06)edgeX=1.045;
   if(ny>1.06)edgeY=-1.045;else if(ny< -1.06)edgeY=1.045;
   const candidates=[];
-  candidates.push({x:edgeX,y:edgeY});
-  for(let i=0;i<72;i++){
-    if(Math.abs(oldX)>1.06)candidates.push({x:edgeX,y:(Math.random()*1.72)-.86});
-    if(Math.abs(oldY)>1.06)candidates.push({x:(Math.random()*1.72)-.86,y:edgeY});
+  for(let i=0;i<28;i++){
+    if(Math.abs(nx)>1.06)candidates.push({x:edgeX,y:(Math.random()*1.72)-.86});
+    if(Math.abs(ny)>1.06)candidates.push({x:(Math.random()*1.72)-.86,y:edgeY});
   }
+  candidates.push({x:edgeX,y:edgeY});
   let best=null,bestScore=-Infinity;
   for(const c of candidates){
-    if(asteroidSpotClear(c.x,c.y,record)){best=c;break;}
     let nearest=Infinity;
     for(const other of asteroidRecords){
       if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
-      const dx=(c.x-other.ndcX)*innerWidth*.5,dy=(c.y-other.ndcY)*innerHeight*.5;
-      nearest=Math.min(nearest,Math.hypot(dx,dy));
+      nearest=Math.min(nearest,Math.hypot((c.x-other.ndcX)*innerWidth*.5,(c.y-other.ndcY)*innerHeight*.5));
     }
     if(nearest>bestScore){bestScore=nearest;best=c;}
+    if(asteroidSpotClear(c.x,c.y,record)){best=c;break;}
   }
-  // Keep the motion continuous across the edge, with only a rare fallback to open-space respawn.
-  if(best&&bestScore<Math.max(48,Math.min(innerWidth,innerHeight)*.07)&&!asteroidSpotClear(best.x,best.y,record)){
-    layoutAsteroid(record);
-  }else if(best){
-    setAsteroidNdcPosition(record,best.x,best.y);
-  }else{
-    layoutAsteroid(record);
-  }
+  if(best)setAsteroidNdcPosition(record,best.x,best.y);else layoutAsteroid(record);
 }
 function createAsteroidRecord(){
   const root=new THREE.Group();
