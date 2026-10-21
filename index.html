@@ -287,6 +287,7 @@ function loadBodyTexture(p,mat,buildToken){
 const group=new THREE.Group(); scene.add(group);
 let sceneMode='near';
 const galaxyGroup=new THREE.Group();scene.add(galaxyGroup);
+const galaxyInteractivePoints=[];
 function makeGlowTexture(){
   const cv=document.createElement('canvas');cv.width=cv.height=256;
   const c=cv.getContext('2d');
@@ -385,7 +386,6 @@ function buildGalaxy(){
 }
 buildGalaxy();
 galaxyGroup.visible=false;
-const galaxyInteractivePoints=[];
 
 // ---------------- interactive drifting asteroids and stars ----------------
 const debrisGroup=new THREE.Group();
