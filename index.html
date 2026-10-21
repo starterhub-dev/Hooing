@@ -211,7 +211,7 @@ scene.add(sun);
 
 let sphere, ringMesh, atmosphereMesh;
 const group=new THREE.Group(); scene.add(group);
-let sceneMode='solar';
+let sceneMode='near';
 const galaxyGroup=new THREE.Group();scene.add(galaxyGroup);
 function buildGalaxy(){
   const count=4600,pos=new Float32Array(count*3),col=new Float32Array(count*3);
@@ -227,6 +227,7 @@ function buildGalaxy(){
   galaxyGroup.add(core);galaxyGroup.rotation.x=.35;
 }
 buildGalaxy();
+galaxyGroup.visible=false;
 
 function buildPlanet(p){
   if(sphere){group.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose();}
