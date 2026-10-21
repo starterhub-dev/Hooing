@@ -227,7 +227,7 @@ scene.add(sun);
   scene.add(new THREE.Points(geo,mat));
 }
 
-let sphere, ringMesh, atmosphereMesh, coronaSprite=null;
+let sphere, ringMesh, atmosphereMesh, coronaSprite=null, coronaMesh=null;
 let planetBuildToken=0;
 const bodyTextureCache=Object.create(null);
 const bodyTexturePending=Object.create(null);
@@ -368,6 +368,7 @@ function buildPlanet(p){
   if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); if(ringMesh.material.map)ringMesh.material.map.dispose(); ringMesh.material.dispose();ringMesh=null;}
   if(atmosphereMesh){group.remove(atmosphereMesh);atmosphereMesh.geometry.dispose();atmosphereMesh.material.dispose();atmosphereMesh=null;}
   if(coronaSprite){group.remove(coronaSprite);if(coronaSprite.material.map)coronaSprite.material.map.dispose();coronaSprite.material.dispose();coronaSprite=null;}
+  if(coronaMesh){group.remove(coronaMesh);coronaMesh.geometry.dispose();coronaMesh.material.dispose();coronaMesh=null;}
   const tex=makeTexture(p);
   const geo=new THREE.SphereGeometry(p.size,64,64);
   let mat;
@@ -392,9 +393,9 @@ function buildPlanet(p){
     coronaSprite.position.z=-.08;
     coronaSprite.scale.set(p.size*3.5,p.size*3.5,1);
     group.add(coronaSprite);
-    const outerCorona=new THREE.Mesh(new THREE.SphereGeometry(p.size*1.06,48,48),
+    coronaMesh=new THREE.Mesh(new THREE.SphereGeometry(p.size*1.06,48,48),
       new THREE.MeshBasicMaterial({color:0xff9d38,transparent:true,opacity:.07,side:THREE.BackSide,depthWrite:false}));
-    group.add(outerCorona);
+    group.add(coronaMesh);
   }
 
   const atmospheres={
