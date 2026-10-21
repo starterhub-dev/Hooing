@@ -107,8 +107,25 @@ function makeTexture(p){
   const baseHex='#'+p.color.toString(16).padStart(6,'0');
   c.fillStyle=baseHex; c.fillRect(0,0,512,256);
   if(p.earthlike){
-    // Placeholder ocean only. Accurate equirectangular Earth imagery is loaded in buildPlanet().
-    c.fillStyle='#123f78'; c.fillRect(0,0,512,256);
+    // Local fallback: equirectangular ocean with recognizable continent silhouettes.
+    // The higher-detail NASA Blue Marble map replaces this as soon as it loads.
+    c.fillStyle='#09244b'; c.fillRect(0,0,512,256);
+    const land='#6d8060';
+    const drawLand=(points,fill=land)=>{
+      c.beginPath();
+      points.forEach((pt,i)=>i===0?c.moveTo(pt[0],pt[1]):c.lineTo(pt[0],pt[1]));
+      c.closePath(); c.fillStyle=fill; c.fill();
+    };
+    drawLand([[0,48],[25,38],[47,42],[60,31],[77,36],[97,51],[119,55],[132,67],[119,83],[106,87],[99,102],[87,115],[74,103],[63,88],[47,81],[36,65],[18,63]]);
+    drawLand([[111,119],[127,126],[143,143],[145,164],[137,184],[129,207],[120,231],[112,207],[108,181],[103,156]]);
+    drawLand([[144,29],[159,22],[174,28],[169,44],[154,48]]);
+    drawLand([[205,55],[217,44],[233,47],[242,59],[258,53],[275,58],[288,52],[311,58],[333,62],[354,70],[378,66],[398,83],[387,95],[368,91],[353,101],[340,91],[325,102],[308,94],[296,82],[278,88],[260,79],[245,89],[231,82],[217,76]]);
+    drawLand([[239,88],[258,91],[272,106],[278,127],[270,151],[257,177],[244,157],[238,136],[229,116]]);
+    drawLand([[280,96],[296,97],[306,113],[298,127],[287,116]]);
+    drawLand([[304,114],[320,119],[330,139],[324,157],[315,145]]);
+    drawLand([[377,137],[393,131],[412,142],[425,154],[420,166],[404,169],[394,159],[384,154]]);
+    drawLand([[441,178],[457,173],[473,183],[465,193],[448,190]]);
+    drawLand([[0,239],[30,235],[70,241],[110,236],[150,242],[190,237],[230,243],[270,238],[310,242],[350,236],[390,242],[430,238],[470,242],[512,236],[512,256],[0,256]],'#aab5b7');
   }
   if(p.craters){
     for(let i=0;i<70;i++){
@@ -169,12 +186,13 @@ const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,0.1,100);
 camera.position.set(0,0,5);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputEncoding=THREE.sRGBEncoding;
 renderer.setSize(innerWidth,innerHeight);
 container.appendChild(renderer.domElement);
 
-const ambient=new THREE.AmbientLight(0x404050,1.1);
+const ambient=new THREE.AmbientLight(0x596a83,0.72);
 scene.add(ambient);
-const sun=new THREE.DirectionalLight(0xffffff,1.6);
+const sun=new THREE.DirectionalLight(0xffffff,1.45);
 sun.position.set(3,2,4);
 scene.add(sun);
 
@@ -192,6 +210,7 @@ scene.add(sun);
 }
 
 let sphere, ringMesh, atmosphereMesh;
+let planetBuildToken=0;
 const group=new THREE.Group(); scene.add(group);
 let sceneMode='near';
 const galaxyGroup=new THREE.Group();scene.add(galaxyGroup);
@@ -212,35 +231,51 @@ buildGalaxy();
 galaxyGroup.visible=false;
 
 function buildPlanet(p){
+  const buildToken=++planetBuildToken;
   if(sphere){group.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose();}
   if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); ringMesh.material.dispose();}
   if(atmosphereMesh){group.remove(atmosphereMesh);atmosphereMesh.geometry.dispose();atmosphereMesh.material.dispose();atmosphereMesh=null;}
   const tex=makeTexture(p);
   const geo=new THREE.SphereGeometry(p.size,64,64);
-  const matOpts={map:tex,roughness:1};
   let mat;
   if(p.id==='sun'){
     mat=new THREE.MeshBasicMaterial({map:tex});
+  } else if(p.id==='earth'){
+    mat=new THREE.MeshPhongMaterial({map:tex,color:0xffffff,specular:new THREE.Color(0x17263a),shininess:8});
   } else {
     mat=new THREE.MeshStandardMaterial({map:tex,roughness:0.95,metalness:0.05});
   }
   sphere=new THREE.Mesh(geo,mat);
   group.add(sphere);
   if(p.id==='earth'){
-    // Equirectangular global satellite texture: real continental outlines, not random blobs.
-    const earthTextureUrl='https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
-    new THREE.TextureLoader().load(earthTextureUrl,texture=>{
+    // NASA/Goddard Blue Marble: true-color 2:1 equirectangular world map.
+    // The local canvas map remains visible immediately while this loads.
+    const earthTextureUrl='https://svs.gsfc.nasa.gov/vis/a000000/a002900/a002915/bluemarble-2048.png';
+    const loader=new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    loader.load(earthTextureUrl,texture=>{
+      if(buildToken!==planetBuildToken){texture.dispose();return;}
       texture.encoding=THREE.sRGBEncoding;
-      texture.anisotropy=renderer.capabilities.getMaxAnisotropy();
+      texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+      texture.minFilter=THREE.LinearMipmapLinearFilter;
+      texture.magFilter=THREE.LinearFilter;
+      texture.generateMipmaps=true;
+      texture.needsUpdate=true;
       mat.map=texture;
       mat.color.set(0xffffff);
       mat.needsUpdate=true;
-    },undefined,err=>console.warn('Earth map texture could not be loaded; using ocean fallback.',err));
+    },undefined,err=>{
+      if(buildToken===planetBuildToken) console.warn('NASA Blue Marble texture failed; keeping local Earth map.',err);
+    });
   }
   if(['earth','venus','mars'].includes(p.id)){
-    const ag=new THREE.SphereGeometry(p.size*1.055,48,48);
-    const ac=p.id==='earth'?0x4b9fff:(p.id==='venus'?0xf0c78e:0xe47755);
-    atmosphereMesh=new THREE.Mesh(ag,new THREE.MeshBasicMaterial({color:ac,transparent:true,opacity:p.id==='earth'?.22:.10,side:THREE.BackSide,depthWrite:false}));
+    const isEarth=p.id==='earth';
+    const ag=new THREE.SphereGeometry(p.size*(isEarth?1.024:1.055),48,48);
+    const ac=isEarth?0x62b8ff:(p.id==='venus'?0xf0c78e:0xe47755);
+    atmosphereMesh=new THREE.Mesh(ag,new THREE.MeshBasicMaterial({
+      color:ac,transparent:true,opacity:isEarth?.14:.10,
+      side:THREE.BackSide,depthWrite:false
+    }));
     group.add(atmosphereMesh);
   }
 
