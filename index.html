@@ -107,20 +107,8 @@ function makeTexture(p){
   const baseHex='#'+p.color.toString(16).padStart(6,'0');
   c.fillStyle=baseHex; c.fillRect(0,0,512,256);
   if(p.earthlike){
-    const landHex='#'+p.land.toString(16).padStart(6,'0');
-    c.fillStyle=landHex;
-    for(let i=0;i<14;i++){
-      const x=Math.random()*512,y=Math.random()*256,r=Math.random()*40+20;
-      c.beginPath();
-      for(let a=0;a<Math.PI*2;a+=0.4){
-        const rr=r*(0.6+Math.random()*0.6);
-        const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr;
-        a===0?c.moveTo(px,py):c.lineTo(px,py);
-      }
-      c.closePath(); c.fill();
-    }
-    c.fillStyle='rgba(255,255,255,0.5)';
-    for(let i=0;i<6;i++){const x=Math.random()*512,y=Math.random()*80;c.beginPath();c.ellipse(x,y,60,18,0,0,Math.PI*2);c.fill();}
+    // Placeholder ocean only. Accurate equirectangular Earth imagery is loaded in buildPlanet().
+    c.fillStyle='#123f78'; c.fillRect(0,0,512,256);
   }
   if(p.craters){
     for(let i=0;i<70;i++){
@@ -165,13 +153,7 @@ function makeTexture(p){
       c.fillStyle=g;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();
     }
   }
-  if(p.earthlike){
-    for(let i=0;i<80;i++){
-      c.strokeStyle='rgba(245,250,255,'+(Math.random()*.10)+')';c.lineWidth=1+Math.random()*5;
-      c.beginPath();const x=Math.random()*cv.width,y=Math.random()*cv.height;
-      c.ellipse(x,y,10+Math.random()*80,1+Math.random()*5,Math.random()*.3,0,Math.PI*2);c.stroke();
-    }
-  }
+  // Earth clouds are included in the geographic texture, not procedurally scattered.
   if(p.id==='jupiter'){
     const storm=c.createRadialGradient(350,130,3,350,130,38);
     storm.addColorStop(0,'rgba(145,55,34,.8)');storm.addColorStop(.7,'rgba(175,85,55,.35)');storm.addColorStop(1,'rgba(175,85,55,0)');
@@ -244,6 +226,17 @@ function buildPlanet(p){
   }
   sphere=new THREE.Mesh(geo,mat);
   group.add(sphere);
+  if(p.id==='earth'){
+    // Equirectangular global satellite texture: real continental outlines, not random blobs.
+    const earthTextureUrl='https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
+    new THREE.TextureLoader().load(earthTextureUrl,texture=>{
+      texture.encoding=THREE.sRGBEncoding;
+      texture.anisotropy=renderer.capabilities.getMaxAnisotropy();
+      mat.map=texture;
+      mat.color.set(0xffffff);
+      mat.needsUpdate=true;
+    },undefined,err=>console.warn('Earth map texture could not be loaded; using ocean fallback.',err));
+  }
   if(['earth','venus','mars'].includes(p.id)){
     const ag=new THREE.SphereGeometry(p.size*1.055,48,48);
     const ac=p.id==='earth'?0x4b9fff:(p.id==='venus'?0xf0c78e:0xe47755);
