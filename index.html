@@ -543,7 +543,8 @@ function setAsteroidNdcPosition(record,nx,ny){
   record.group.visible=record.active;
 }
 function asteroidPixelDiameter(record){
-  const dist=Math.max(.1,camera.position.z-record.group.position.z);
+  const planeZ=Number.isFinite(record.planeZ)?record.planeZ:record.group.position.z;
+  const dist=Math.max(.1,camera.position.z-planeZ);
   return record.scale*innerHeight/(dist*Math.tan(THREE.MathUtils.degToRad(camera.fov/2)));
 }
 function asteroidSpotClear(nx,ny,record){
