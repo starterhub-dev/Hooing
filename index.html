@@ -543,28 +543,46 @@ function setAsteroidNdcPosition(record,nx,ny){
   record.ndcX=nx;record.ndcY=ny;
   record.group.visible=record.active;
 }
+function asteroidCenterKeepoutPx(record){
+  const shortSide=Math.min(innerWidth,innerHeight);
+  if(sceneMode==='galaxy')return shortSide*.32;
+  const p=PLANETS[currentIndex]||PLANETS[3];
+  const distance=Math.max(1,camera.position.z-(record?.planeZ||0));
+  const projectedRadius=(p.size||1)*innerHeight/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*distance);
+  return Math.min(shortSide*.46,Math.max(shortSide*.23,projectedRadius+shortSide*.075));
+}
 function asteroidSpotClear(nx,ny,record){
-  const gap=Math.max(78,Math.min(innerWidth,innerHeight)*.13);
+  const px=nx*innerWidth*.5,py=ny*innerHeight*.5;
+  const centerDistance=Math.hypot(px,py);
+  const keepout=asteroidCenterKeepoutPx(record);
+  if(centerDistance<keepout)return false;
+  const gap=Math.max(82,Math.min(innerWidth,innerHeight)*.145);
   for(const other of asteroidRecords){
     if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
     const dx=(nx-other.ndcX)*innerWidth*.5;
     const dy=(ny-other.ndcY)*innerHeight*.5;
-    if(Math.hypot(dx,dy)<gap)return false;
+    const otherGap=gap*.72;
+    if(Math.hypot(dx,dy)<otherGap)return false;
   }
   return true;
 }
 function layoutAsteroid(record){
   record.planeZ=chooseAsteroidDepth();
   resetAsteroidMotion(record);
-  let best={x:(Math.random()-.5)*1.7,y:(Math.random()-.5)*1.7,score:-Infinity};
-  for(let n=0;n<100;n++){
-    const nx=(Math.random()*1.82)-.91,ny=(Math.random()*1.82)-.91;
+  let best={x:0,y:.82,score:-Infinity};
+  // Sample across the full viewport, prefer positions that are both well-separated and away from the central body.
+  for(let n=0;n<180;n++){
+    const nx=(Math.random()*1.9)-.95,ny=(Math.random()*1.9)-.95;
+    const centerPx=Math.hypot(nx*innerWidth*.5,ny*innerHeight*.5);
+    const keepout=asteroidCenterKeepoutPx(record);
     let nearest=Infinity;
     for(const other of asteroidRecords){
       if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
       nearest=Math.min(nearest,Math.hypot((nx-other.ndcX)*innerWidth*.5,(ny-other.ndcY)*innerHeight*.5));
     }
-    if(nearest>best.score)best={x:nx,y:ny,score:nearest};
+    const centerPenalty=centerPx<keepout?((keepout-centerPx)*1.8):0;
+    const score=nearest-centerPenalty;
+    if(score>best.score)best={x:nx,y:ny,score};
     if(asteroidSpotClear(nx,ny,record)){best={x:nx,y:ny,score:Infinity};break;}
   }
   setAsteroidNdcPosition(record,best.x,best.y);
@@ -574,9 +592,9 @@ function wrapAsteroidAtEdge(record,nx,ny){
   if(nx>1.06)edgeX=-1.045;else if(nx< -1.06)edgeX=1.045;
   if(ny>1.06)edgeY=-1.045;else if(ny< -1.06)edgeY=1.045;
   const candidates=[];
-  for(let i=0;i<28;i++){
-    if(Math.abs(nx)>1.06)candidates.push({x:edgeX,y:(Math.random()*1.72)-.86});
-    if(Math.abs(ny)>1.06)candidates.push({x:(Math.random()*1.72)-.86,y:edgeY});
+  for(let i=0;i<56;i++){
+    if(Math.abs(nx)>1.06)candidates.push({x:edgeX,y:(Math.random()*1.84)-.92});
+    if(Math.abs(ny)>1.06)candidates.push({x:(Math.random()*1.84)-.92,y:edgeY});
   }
   candidates.push({x:edgeX,y:edgeY});
   let best=null,bestScore=-Infinity;
@@ -586,7 +604,10 @@ function wrapAsteroidAtEdge(record,nx,ny){
       if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
       nearest=Math.min(nearest,Math.hypot((c.x-other.ndcX)*innerWidth*.5,(c.y-other.ndcY)*innerHeight*.5));
     }
-    if(nearest>bestScore){bestScore=nearest;best=c;}
+    const centerPx=Math.hypot(c.x*innerWidth*.5,c.y*innerHeight*.5);
+    const centerPenalty=centerPx<asteroidCenterKeepoutPx(record)?(asteroidCenterKeepoutPx(record)-centerPx)*1.8:0;
+    const score=nearest-centerPenalty;
+    if(score>bestScore){bestScore=score;best=c;}
     if(asteroidSpotClear(c.x,c.y,record)){best=c;break;}
   }
   if(best)setAsteroidNdcPosition(record,best.x,best.y);else layoutAsteroid(record);
@@ -758,18 +779,43 @@ function updateCosmicEffects(dt,t){
         }
         continue;
       }
-      // Each rock keeps its own lazy drift and tumbling, with weak smooth steering instead of synchronized motion.
-      record.velocity.x+=Math.sin(t*.16+record.phase)*dt*.00125;
-      record.velocity.y+=Math.cos(t*.13+record.phase*1.37)*dt*.00105;
+      // Independent inertial drift plus very soft separation and center avoidance.
+      const dist=Math.max(.1,camera.position.z-record.group.position.z);
+      const halfY=dist*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
+      const halfX=halfY*camera.aspect;
+      let nx=record.group.position.x/halfX,ny=record.group.position.y/halfY;
+      record.ndcX=nx;record.ndcY=ny;
+      let steerX=Math.sin(t*.16+record.phase)*.012;
+      let steerY=Math.cos(t*.13+record.phase*1.37)*.012;
+      const px=nx*innerWidth*.5,py=ny*innerHeight*.5;
+      const centerDist=Math.hypot(px,py);
+      const keepout=asteroidCenterKeepoutPx(record)+Math.min(innerWidth,innerHeight)*.055;
+      if(centerDist<keepout&&centerDist>1){
+        const strength=(1-centerDist/keepout)*.55;
+        steerX+=(px/centerDist)*strength;
+        steerY+=(py/centerDist)*strength;
+      }
+      const gap=Math.max(82,Math.min(innerWidth,innerHeight)*.145);
+      for(const other of asteroidRecords){
+        if(other===record||!other.active||!Number.isFinite(other.ndcX)||!Number.isFinite(other.ndcY))continue;
+        const dx=(nx-other.ndcX)*innerWidth*.5,dy=(ny-other.ndcY)*innerHeight*.5;
+        const d=Math.hypot(dx,dy);
+        if(d>1&&d<gap){
+          const strength=(1-d/gap)*.16;
+          steerX+=(dx/d)*strength;
+          steerY+=(dy/d)*strength;
+        }
+      }
+      record.velocity.x+=steerX*halfX*dt*.075;
+      record.velocity.y+=steerY*halfY*dt*.075;
+      record.velocity.x+=Math.sin(t*.16+record.phase)*dt*.001;
+      record.velocity.y+=Math.cos(t*.13+record.phase*1.37)*dt*.001;
       record.velocity.clampLength(.004,.052);
       record.group.position.addScaledVector(record.velocity,dt);
       record.group.rotation.x+=record.spin.x*dt;
       record.group.rotation.y+=record.spin.y*dt;
       record.group.rotation.z+=record.spin.z*dt;
-      const dist=Math.max(.1,camera.position.z-record.group.position.z);
-      const halfY=dist*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
-      const halfX=halfY*camera.aspect;
-      const nx=record.group.position.x/halfX,ny=record.group.position.y/halfY;
+      nx=record.group.position.x/halfX;ny=record.group.position.y/halfY;
       record.ndcX=nx;record.ndcY=ny;
       if(Math.abs(nx)>1.06||Math.abs(ny)>1.06)wrapAsteroidAtEdge(record,nx,ny);
     }
@@ -1035,7 +1081,7 @@ function setMode(mode){
   if(mode==='galaxy'){
     camera.position.set(0,0,15.5);
     rotX=.15;rotY=0;
-    group.visible=false;galaxyGroup.visible=true;debrisGroup.visible=false;
+    group.visible=false;galaxyGroup.visible=true;debrisGroup.visible=true;layoutAsteroidField();
     document.getElementById('info-tag').textContent='MILKY WAY · 01';
     document.getElementById('info-name').textContent='银河系';
     document.getElementById('info-desc').textContent='旋转视角，探索恒星与旋臂构成的银河结构。这里展示的是程序生成的示意模型。';
