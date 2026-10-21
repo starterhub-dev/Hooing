@@ -261,6 +261,7 @@ function buildPlanet(p){
       texture.magFilter=THREE.LinearFilter;
       texture.generateMipmaps=true;
       texture.needsUpdate=true;
+      if(mat.map && mat.map!==texture) mat.map.dispose();
       mat.map=texture;
       mat.color.set(0xffffff);
       mat.needsUpdate=true;
