@@ -50,6 +50,10 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
  border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:9px 12px;background:rgba(10,14,22,.62);
  color:rgba(255,255,255,.8);font:inherit;font-size:.72rem;backdrop-filter:blur(10px);cursor:pointer;pointer-events:auto;}
 #scene canvas{touch-action:none;display:block;}
+#credits{position:fixed;z-index:8;left:14px;bottom:calc(18px + env(safe-area-inset-bottom,0px));max-width:40vw;
+ font-size:9px;line-height:1.5;letter-spacing:.25px;color:rgba(255,255,255,.34);text-decoration:none;pointer-events:auto}
+#credits:active{color:rgba(255,255,255,.7)}
+@media(max-width:600px){#credits{left:10px;bottom:calc(17px + env(safe-area-inset-bottom,0px));font-size:8px;max-width:32vw}}
 @media(max-width:600px){
  #topbar{padding:0 12px;top:calc(12px + env(safe-area-inset-top,0px));}
  .brand{font-size:.65rem;gap:5px;letter-spacing:1px}.brand b{font-size:.82rem;letter-spacing:2px}
@@ -83,6 +87,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
 </div>
 <div id="rotate-hint">拖动旋转 · 滚轮缩放</div>
 <div id="dock"></div>
+<a id="credits" href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer"
+ title="太阳、水星、金星、火星、木星、土星、天王星、海王星与月球纹理来自 Solar System Scope，依 CC BY 4.0 使用；地球使用 Three.js 示例纹理。">行星纹理：Solar System Scope · CC BY 4.0</a>
 
 <script>
 // ---------------- data ----------------
@@ -98,6 +104,18 @@ const PLANETS=[
  {id:'uranus',name:'天王星',tag:'URANUS · 08',desc:'侧躺着自转的淡青色冰巨星。',d:'50,724 km',p:'84 年',color:0x9fdede,size:1.5,rings:false,bands:false,craters:false},
  {id:'neptune',name:'海王星',tag:'NEPTUNE · 09',desc:'太阳系最外侧，风速最快的深蓝冰巨星。',d:'49,244 km',p:'165 年',color:0x3d5fd0,size:1.5,rings:false,bands:false,craters:false}
 ];
+const PLANET_TEXTURES={
+  sun:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/sun.jpg',
+  mercury:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/mercury.jpg',
+  venus:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/venus.jpg',
+  earth:'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg',
+  moon:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/satellites/moon.jpg',
+  mars:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/mars.jpg',
+  jupiter:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/jupiter.jpg',
+  saturn:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/saturn.jpg',
+  uranus:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/uranus.jpg',
+  neptune:'https://raw.githubusercontent.com/Sanghel/solar-system-3d/develop/public/textures/neptune.jpg'
+};
 let currentIndex=4; // moon default
 
 // ---------------- procedural textures ----------------
@@ -209,23 +227,137 @@ scene.add(sun);
   scene.add(new THREE.Points(geo,mat));
 }
 
-let sphere, ringMesh, atmosphereMesh;
+let sphere, ringMesh, atmosphereMesh, coronaSprite=null;
 let planetBuildToken=0;
+const bodyTextureCache=Object.create(null);
+const bodyTexturePending=Object.create(null);
+function loadBodyTexture(p,mat,buildToken){
+  const url=PLANET_TEXTURES[p.id];
+  if(!url)return;
+  const applyTexture=(texture)=>{
+    if(!texture||buildToken!==planetBuildToken)return;
+    const previous=mat.map;
+    mat.map=texture;
+    mat.color.set(0xffffff);
+    mat.needsUpdate=true;
+    if(previous&&previous!==texture&&previous.image&&previous.image.tagName==='CANVAS')previous.dispose();
+  };
+  if(bodyTextureCache[p.id]){applyTexture(bodyTextureCache[p.id]);return;}
+  if(!bodyTexturePending[p.id]){
+    bodyTexturePending[p.id]=new Promise(resolve=>{
+      const loader=new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(url,texture=>{
+        texture.encoding=THREE.sRGBEncoding;
+        texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+        texture.minFilter=THREE.LinearMipmapLinearFilter;
+        texture.magFilter=THREE.LinearFilter;
+        texture.generateMipmaps=true;
+        texture.needsUpdate=true;
+        bodyTextureCache[p.id]=texture;
+        delete bodyTexturePending[p.id];
+        resolve(texture);
+      },undefined,error=>{
+        console.warn('Planet texture failed to load:',p.id,url,error);
+        delete bodyTexturePending[p.id];
+        resolve(null);
+      });
+    });
+  }
+  bodyTexturePending[p.id].then(texture=>applyTexture(texture));
+}
 const group=new THREE.Group(); scene.add(group);
 let sceneMode='near';
 const galaxyGroup=new THREE.Group();scene.add(galaxyGroup);
+function makeGlowTexture(){
+  const cv=document.createElement('canvas');cv.width=cv.height=256;
+  const c=cv.getContext('2d');
+  const g=c.createRadialGradient(128,128,0,128,128,128);
+  g.addColorStop(0,'rgba(255,248,232,0.98)');
+  g.addColorStop(.10,'rgba(255,219,170,0.75)');
+  g.addColorStop(.28,'rgba(255,167,142,0.28)');
+  g.addColorStop(.55,'rgba(130,122,255,0.09)');
+  g.addColorStop(1,'rgba(70,100,255,0)');
+  c.fillStyle=g;c.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(cv);
+}
+function addGalaxyGlow(parent,x,y,z,size,tint,opacity){
+  const texture=makeGlowTexture();
+  const material=new THREE.SpriteMaterial({map:texture,color:tint,transparent:true,opacity,
+    blending:THREE.AdditiveBlending,depthWrite:false});
+  const sprite=new THREE.Sprite(material);
+  sprite.position.set(x,y,z);sprite.scale.set(size,size,1);sprite.renderOrder=2;
+  parent.add(sprite);
+}
 function buildGalaxy(){
-  const count=4600,pos=new Float32Array(count*3),col=new Float32Array(count*3);
+  // A layered spiral galaxy: a dense stellar disk, warmer central bulge, colored nebula and subtle arm filaments.
+  const count=26000,pos=new Float32Array(count*3),col=new Float32Array(count*3);
+  const palettes=[
+    [0.58,0.72,1.00],[0.76,0.82,1.00],[1.00,0.89,0.70],
+    [1.00,0.97,0.88],[0.92,0.61,0.80],[0.52,0.77,1.00]
+  ];
   for(let i=0;i<count;i++){
-    const arm=i%4,r=Math.pow(Math.random(),.62)*7.5;
-    const a=r*.78+arm*Math.PI/2+(Math.random()-.5)*.55;
-    pos[i*3]=Math.cos(a)*r;pos[i*3+1]=(Math.random()-.5)*(.1+r*.07);pos[i*3+2]=Math.sin(a)*r;
-    const core=Math.max(0,1-r/7.5);col[i*3]=.58+core*.4;col[i*3+1]=.65+core*.26;col[i*3+2]=.82+core*.16;
+    const arm=i%4;
+    const r=Math.pow(Math.random(),.72)*6.45;
+    const angle=r*.78+arm*Math.PI/2+(Math.random()-.5)*(.22+r*.035);
+    const spread=(Math.random()-.5)*(.09+r*.035);
+    const rr=Math.max(.04,r+spread);
+    pos[i*3]=Math.cos(angle)*rr;
+    pos[i*3+1]=(Math.random()-.5)*(.05+r*.055);
+    pos[i*3+2]=Math.sin(angle)*rr;
+    const palette=palettes[Math.random()<.12?4:(Math.random()<.13?2:(Math.random()<.24?0:3))];
+    const brightness=.35+Math.pow(Math.random(),2)*.9;
+    col[i*3]=Math.min(1,palette[0]*brightness);
+    col[i*3+1]=Math.min(1,palette[1]*brightness);
+    col[i*3+2]=Math.min(1,palette[2]*brightness);
   }
-  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));
-  galaxyGroup.add(new THREE.Points(geo,new THREE.PointsMaterial({size:.035,vertexColors:true,transparent:true,opacity:.92,depthWrite:false})));
-  const core=new THREE.Mesh(new THREE.SphereGeometry(.38,24,24),new THREE.MeshBasicMaterial({color:0xffd7a3,transparent:true,opacity:.7}));
-  galaxyGroup.add(core);galaxyGroup.rotation.x=.35;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  galaxyGroup.add(new THREE.Points(geo,new THREE.PointsMaterial({size:.034,vertexColors:true,
+    transparent:true,opacity:.96,depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true})));
+
+  // A compact, bright core with a thicker cloud of old stars.
+  const coreCount=6200,cp=new Float32Array(coreCount*3),cc=new Float32Array(coreCount*3);
+  for(let i=0;i<coreCount;i++){
+    const r=Math.pow(Math.random(),2.35)*1.72;
+    const a=Math.random()*Math.PI*2;
+    cp[i*3]=Math.cos(a)*r;
+    cp[i*3+1]=(Math.random()-.5)*(.12+r*.09);
+    cp[i*3+2]=Math.sin(a)*r;
+    const q=.55+Math.random()*.45;
+    cc[i*3]=q;cc[i*3+1]=q*(.78+Math.random()*.18);cc[i*3+2]=q*(.48+Math.random()*.32);
+  }
+  const cg=new THREE.BufferGeometry();
+  cg.setAttribute('position',new THREE.BufferAttribute(cp,3));
+  cg.setAttribute('color',new THREE.BufferAttribute(cc,3));
+  galaxyGroup.add(new THREE.Points(cg,new THREE.PointsMaterial({size:.045,vertexColors:true,
+    transparent:true,opacity:.95,depthWrite:false,blending:THREE.AdditiveBlending})));
+  const core=new THREE.Mesh(new THREE.SphereGeometry(.24,32,32),
+    new THREE.MeshBasicMaterial({color:0xffd8ac,transparent:true,opacity:.8}));
+  galaxyGroup.add(core);
+  addGalaxyGlow(galaxyGroup,0,0,0,3.2,0xffc38d,.88);
+  addGalaxyGlow(galaxyGroup,-1.9,.05,1.45,2.7,0x668cff,.42);
+  addGalaxyGlow(galaxyGroup,2.5,-.04,-1.15,2.8,0xb77bff,.35);
+  addGalaxyGlow(galaxyGroup,-3.25,.04,-1.75,2.4,0x4d9fff,.30);
+  addGalaxyGlow(galaxyGroup,3.55,-.02,1.85,2.5,0xff7cb4,.24);
+
+  // Very faint spiral filaments add shape without turning the galaxy into neon wireframe.
+  for(let arm=0;arm<4;arm++){
+    const pts=[];
+    for(let i=0;i<=120;i++){
+      const t=i/120,r=.55+t*5.95,a=r*.78+arm*Math.PI/2;
+      pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(t*8+arm)*(.025+r*.012),Math.sin(a)*r));
+    }
+    const curve=new THREE.CatmullRomCurve3(pts);
+    const tube=new THREE.TubeGeometry(curve,180,.012,5,false);
+    const filament=new THREE.Mesh(tube,new THREE.MeshBasicMaterial({
+      color:[0x6e9fff,0x8a8cff,0xff9dc5,0x8ad7ff][arm],
+      transparent:true,opacity:.18,blending:THREE.AdditiveBlending,depthWrite:false
+    }));
+    galaxyGroup.add(filament);
+  }
+  galaxyGroup.rotation.set(.78,.03,-.08);
 }
 buildGalaxy();
 galaxyGroup.visible=false;
@@ -233,54 +365,53 @@ galaxyGroup.visible=false;
 function buildPlanet(p){
   const buildToken=++planetBuildToken;
   if(sphere){group.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose();}
-  if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); ringMesh.material.dispose();}
+  if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); if(ringMesh.material.map)ringMesh.material.map.dispose(); ringMesh.material.dispose();ringMesh=null;}
   if(atmosphereMesh){group.remove(atmosphereMesh);atmosphereMesh.geometry.dispose();atmosphereMesh.material.dispose();atmosphereMesh=null;}
+  if(coronaSprite){group.remove(coronaSprite);if(coronaSprite.material.map)coronaSprite.material.map.dispose();coronaSprite.material.dispose();coronaSprite=null;}
   const tex=makeTexture(p);
   const geo=new THREE.SphereGeometry(p.size,64,64);
   let mat;
   if(p.id==='sun'){
-    mat=new THREE.MeshBasicMaterial({map:tex});
+    mat=new THREE.MeshBasicMaterial({map:tex,color:0xffffff});
   } else if(p.id==='earth'){
     mat=new THREE.MeshPhongMaterial({map:tex,color:0xffffff,specular:new THREE.Color(0x17263a),shininess:8});
+  } else if(p.id==='moon'||p.id==='mercury'||p.id==='mars'){
+    mat=new THREE.MeshStandardMaterial({map:tex,color:0xffffff,roughness:1,metalness:0});
   } else {
-    mat=new THREE.MeshStandardMaterial({map:tex,roughness:0.95,metalness:0.05});
+    mat=new THREE.MeshStandardMaterial({map:tex,color:0xffffff,roughness:.88,metalness:0});
   }
   sphere=new THREE.Mesh(geo,mat);
   group.add(sphere);
-  if(p.id==='earth'){
-    // NASA/Goddard Blue Marble: true-color 2:1 equirectangular world map.
-    // The local canvas map remains visible immediately while this loads.
-    // Use the Three.js-hosted equirectangular Earth map to avoid NASA-host CORS/network failures on mobile.
-    const earthTextureUrl='https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
-    const loader=new THREE.TextureLoader();
-    loader.setCrossOrigin('anonymous');
-    loader.load(earthTextureUrl,texture=>{
-      if(buildToken!==planetBuildToken){texture.dispose();return;}
-      texture.encoding=THREE.sRGBEncoding;
-      texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-      texture.minFilter=THREE.LinearMipmapLinearFilter;
-      texture.magFilter=THREE.LinearFilter;
-      texture.generateMipmaps=true;
-      texture.needsUpdate=true;
-      if(mat.map && mat.map!==texture) mat.map.dispose();
-      mat.map=texture;
-      mat.color.set(0xffffff);
-      mat.needsUpdate=true;
-    },undefined,err=>{
-      if(buildToken===planetBuildToken){
-        console.error('Earth texture failed to load. Check the image request in the browser network panel.',err);
-        const tag=document.getElementById('info-tag');
-        if(tag) tag.title='高清地球贴图加载失败，当前显示简化兜底地图';
-      }
-    });
+  loadBodyTexture(p,mat,buildToken);
+
+  if(p.id==='sun'){
+    // Soft additive corona behind the solar disc.
+    const coronaMat=new THREE.SpriteMaterial({map:makeGlowTexture(),color:0xffa74b,transparent:true,
+      opacity:.82,blending:THREE.AdditiveBlending,depthWrite:false});
+    coronaSprite=new THREE.Sprite(coronaMat);
+    coronaSprite.position.z=-.08;
+    coronaSprite.scale.set(p.size*3.5,p.size*3.5,1);
+    group.add(coronaSprite);
+    const outerCorona=new THREE.Mesh(new THREE.SphereGeometry(p.size*1.06,48,48),
+      new THREE.MeshBasicMaterial({color:0xff9d38,transparent:true,opacity:.07,side:THREE.BackSide,depthWrite:false}));
+    group.add(outerCorona);
   }
-  if(['earth','venus','mars'].includes(p.id)){
-    const isEarth=p.id==='earth';
-    const ag=new THREE.SphereGeometry(p.size*(isEarth?1.024:1.055),48,48);
-    const ac=isEarth?0x62b8ff:(p.id==='venus'?0xf0c78e:0xe47755);
+
+  const atmospheres={
+    earth:{scale:1.026,color:0x62b8ff,opacity:.15},
+    venus:{scale:1.065,color:0xffc16e,opacity:.12},
+    mars:{scale:1.034,color:0xe47755,opacity:.085},
+    jupiter:{scale:1.018,color:0xd8b48f,opacity:.055},
+    saturn:{scale:1.018,color:0xf1d9a0,opacity:.055},
+    uranus:{scale:1.045,color:0x8ef2f4,opacity:.13},
+    neptune:{scale:1.042,color:0x5180ff,opacity:.15}
+  };
+  if(atmospheres[p.id]){
+    const profile=atmospheres[p.id];
+    const ag=new THREE.SphereGeometry(p.size*profile.scale,56,56);
     atmosphereMesh=new THREE.Mesh(ag,new THREE.MeshBasicMaterial({
-      color:ac,transparent:true,opacity:isEarth?.14:.10,
-      side:THREE.BackSide,depthWrite:false
+      color:profile.color,transparent:true,opacity:profile.opacity,
+      side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending
     }));
     group.add(atmosphereMesh);
   }
@@ -295,15 +426,22 @@ function buildPlanet(p){
       const t=(dist-p.size*1.4)/(p.size*0.9);
       uv.setXY(i,t,0);
     }
-    const rc=document.createElement('canvas'); rc.width=256; rc.height=4;
+    const rc=document.createElement('canvas'); rc.width=1024; rc.height=8;
     const rctx=rc.getContext('2d');
-    for(let x=0;x<256;x++){
-      const a=0.25+Math.random()*0.5;
-      rctx.fillStyle=`rgba(226,205,160,${a})`;
-      rctx.fillRect(x,0,1,4);
+    for(let x=0;x<1024;x++){
+      const t=x/1024;
+      const bands=Math.sin(x*.071)*.5+Math.sin(x*.193)*.25+Math.sin(x*.41)*.12;
+      const gap=((x>170&&x<196)||(x>612&&x<631)||(x>780&&x<792));
+      const brightness=Math.max(.12,Math.min(1,.54+bands));
+      const alpha=gap?0.025:(.22+brightness*.52);
+      const r=188+Math.round(brightness*42),g=166+Math.round(brightness*47),b=124+Math.round(brightness*55);
+      rctx.fillStyle=`rgba(${r},${g},${b},${alpha})`;
+      rctx.fillRect(x,0,1,8);
     }
     const ringTex=new THREE.CanvasTexture(rc);
-    const rmat=new THREE.MeshBasicMaterial({map:ringTex,side:THREE.DoubleSide,transparent:true,opacity:0.85});
+    ringTex.needsUpdate=true;
+    const rmat=new THREE.MeshBasicMaterial({map:ringTex,side:THREE.DoubleSide,transparent:true,opacity:.92,
+      depthWrite:false,blending:THREE.NormalBlending});
     ringMesh=new THREE.Mesh(rg,rmat);
     ringMesh.rotation.x=Math.PI/2.3;
     group.add(ringMesh);
@@ -346,7 +484,9 @@ addEventListener('pointermove',e=>{
   lastX=e.clientX; lastY=e.clientY;
 });
 renderer.domElement.addEventListener('wheel',e=>{
-  camera.position.z=Math.max(2.5,Math.min(9,camera.position.z+e.deltaY*0.003));
+  const min=sceneMode==='galaxy'?7:2.5;
+  const max=sceneMode==='galaxy'?23:9;
+  camera.position.z=Math.max(min,Math.min(max,camera.position.z+e.deltaY*0.003));
 },{passive:true});
 
 function onResize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);}
@@ -399,6 +539,8 @@ function setMode(mode){
   document.querySelectorAll('.scale-tabs span').forEach((el,i)=>el.classList.toggle('active',['near','solar','galaxy'][i]===mode));
   const hint=document.getElementById('rotate-hint');
   if(mode==='galaxy'){
+    camera.position.set(0,0,15.5);
+    rotX=.15;rotY=0;
     group.visible=false;galaxyGroup.visible=true;
     document.getElementById('info-tag').textContent='MILKY WAY · 01';
     document.getElementById('info-name').textContent='银河系';
@@ -407,6 +549,7 @@ function setMode(mode){
     document.getElementById('stat-p').textContent='约 2.3亿年';
     hint.textContent='拖动旋转 · 双指或滚轮缩放';
   }else{
+    camera.position.set(0,0,mode==='near'?5:5.6);
     galaxyGroup.visible=false;group.visible=true;
     const preferred=mode==='near'?'earth':'sun';
     if(!(mode==='near'?['earth','moon']:['sun','mercury','venus','earth','mars','jupiter','saturn','uranus','neptune']).includes(PLANETS[currentIndex].id)){
@@ -424,7 +567,7 @@ document.querySelectorAll('.scale-tabs span').forEach((el,i)=>{
   el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();run();}});
 });
 document.getElementById('reset-view').addEventListener('click',()=>{
-  rotX=.15;rotY=0;camera.position.set(0,0,sceneMode==='galaxy'?13:5);playClick();
+  rotX=.15;rotY=0;camera.position.set(0,0,sceneMode==='galaxy'?15.5:(sceneMode==='near'?5:5.6));playClick();
 });
 let pinchDistance=0;
 renderer.domElement.addEventListener('touchstart',e=>{
@@ -434,7 +577,7 @@ renderer.domElement.addEventListener('touchmove',e=>{
   if(e.touches.length===2){
     e.preventDefault();
     const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
-    if(pinchDistance)camera.position.z=Math.max(sceneMode==='galaxy'?7:2.5,Math.min(sceneMode==='galaxy'?22:9,camera.position.z+(pinchDistance-d)*.012));
+    if(pinchDistance)camera.position.z=Math.max(sceneMode==='galaxy'?7:2.5,Math.min(sceneMode==='galaxy'?23:9,camera.position.z+(pinchDistance-d)*.012));
     pinchDistance=d;
   }
 },{passive:false});
