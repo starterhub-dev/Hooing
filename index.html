@@ -250,7 +250,8 @@ function buildPlanet(p){
   if(p.id==='earth'){
     // NASA/Goddard Blue Marble: true-color 2:1 equirectangular world map.
     // The local canvas map remains visible immediately while this loads.
-    const earthTextureUrl='https://svs.gsfc.nasa.gov/vis/a000000/a002900/a002915/bluemarble-2048.png';
+    // Use the Three.js-hosted equirectangular Earth map to avoid NASA-host CORS/network failures on mobile.
+    const earthTextureUrl='https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
     const loader=new THREE.TextureLoader();
     loader.setCrossOrigin('anonymous');
     loader.load(earthTextureUrl,texture=>{
@@ -266,7 +267,11 @@ function buildPlanet(p){
       mat.color.set(0xffffff);
       mat.needsUpdate=true;
     },undefined,err=>{
-      if(buildToken===planetBuildToken) console.warn('NASA Blue Marble texture failed; keeping local Earth map.',err);
+      if(buildToken===planetBuildToken){
+        console.error('Earth texture failed to load. Check the image request in the browser network panel.',err);
+        const tag=document.getElementById('info-tag');
+        if(tag) tag.title='高清地球贴图加载失败，当前显示简化兜底地图';
+      }
     });
   }
   if(['earth','venus','mars'].includes(p.id)){
