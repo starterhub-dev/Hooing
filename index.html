@@ -45,11 +45,27 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
 #sound-toggle{position:fixed;z-index:10;top:calc(16px + env(safe-area-inset-top,0px));right:20px;
   width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);
   color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}
+
+#reset-view{position:fixed;z-index:10;right:18px;bottom:calc(188px + env(safe-area-inset-bottom,0px));
+ border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:9px 12px;background:rgba(10,14,22,.62);
+ color:rgba(255,255,255,.8);font:inherit;font-size:.72rem;backdrop-filter:blur(10px);cursor:pointer;pointer-events:auto;}
+#scene canvas{touch-action:none;display:block;}
+@media(max-width:600px){
+ #topbar{padding:0 12px;top:calc(12px + env(safe-area-inset-top,0px));}
+ .brand{font-size:.65rem;gap:5px;letter-spacing:1px}.brand b{font-size:.82rem;letter-spacing:2px}
+ .scale-tabs{gap:2px;padding:3px}.scale-tabs span{padding:7px 9px;font-size:.66rem}
+ #info{left:16px;top:calc(66px + env(safe-area-inset-top,0px));max-width:220px}
+ #info h1{font-size:1.7rem}#info p{font-size:.74rem;line-height:1.55}
+ .stats{gap:18px}#dock{gap:11px;bottom:calc(14px + env(safe-area-inset-bottom,0px));max-width:96vw;padding:9px 12px}
+ .dock-item .dot{width:25px;height:25px}#rotate-hint{right:14px;bottom:calc(118px + env(safe-area-inset-bottom,0px));font-size:.62rem}
+ #reset-view{right:14px;bottom:calc(150px + env(safe-area-inset-bottom,0px))}
+}
 </style>
 </head>
 <body>
 <div id="scene"></div>
-<button id="sound-toggle" title="开关音效">🔊</button>
+<button id="sound-toggle" title="开关音效" aria-label="开关音效">🔊</button>
+<button id="reset-view" type="button">↺ 重置视角</button>
 <div id="topbar">
   <div class="brand"><b>ORBIT</b> 宇宙漫游</div>
   <div class="scale-tabs">
@@ -131,6 +147,36 @@ function makeTexture(p){
       c.beginPath(); c.arc(x,y,Math.random()*6+2,0,Math.PI*2); c.fill();
     }
   }
+  // Layered micro-relief: fine grain, crater rims and soft atmospheric/cloud streaks.
+  const grain=c.getImageData(0,0,cv.width,cv.height),px=grain.data;
+  for(let i=0;i<px.length;i+=4){
+    const n=(Math.random()-.5)*9;
+    px[i]=Math.max(0,Math.min(255,px[i]+n));
+    px[i+1]=Math.max(0,Math.min(255,px[i+1]+n));
+    px[i+2]=Math.max(0,Math.min(255,px[i+2]+n));
+  }
+  c.putImageData(grain,0,0);
+  if(p.craters){
+    for(let i=0;i<110;i++){
+      const x=Math.random()*cv.width,y=Math.random()*cv.height,r=2+Math.random()*13;
+      const g=c.createRadialGradient(x-r*.22,y-r*.28,1,x,y,r);
+      g.addColorStop(0,'rgba(0,0,0,.34)');g.addColorStop(.58,'rgba(0,0,0,.12)');
+      g.addColorStop(.78,'rgba(255,255,255,.13)');g.addColorStop(1,'rgba(0,0,0,0)');
+      c.fillStyle=g;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();
+    }
+  }
+  if(p.earthlike){
+    for(let i=0;i<80;i++){
+      c.strokeStyle='rgba(245,250,255,'+(Math.random()*.10)+')';c.lineWidth=1+Math.random()*5;
+      c.beginPath();const x=Math.random()*cv.width,y=Math.random()*cv.height;
+      c.ellipse(x,y,10+Math.random()*80,1+Math.random()*5,Math.random()*.3,0,Math.PI*2);c.stroke();
+    }
+  }
+  if(p.id==='jupiter'){
+    const storm=c.createRadialGradient(350,130,3,350,130,38);
+    storm.addColorStop(0,'rgba(145,55,34,.8)');storm.addColorStop(.7,'rgba(175,85,55,.35)');storm.addColorStop(1,'rgba(175,85,55,0)');
+    c.fillStyle=storm;c.beginPath();c.ellipse(350,130,42,16,-.12,0,Math.PI*2);c.fill();
+  }
   return new THREE.CanvasTexture(cv);
 }
 
@@ -163,12 +209,29 @@ scene.add(sun);
   scene.add(new THREE.Points(geo,mat));
 }
 
-let sphere, ringMesh;
+let sphere, ringMesh, atmosphereMesh;
 const group=new THREE.Group(); scene.add(group);
+let sceneMode='solar';
+const galaxyGroup=new THREE.Group();scene.add(galaxyGroup);
+function buildGalaxy(){
+  const count=4600,pos=new Float32Array(count*3),col=new Float32Array(count*3);
+  for(let i=0;i<count;i++){
+    const arm=i%4,r=Math.pow(Math.random(),.62)*7.5;
+    const a=r*.78+arm*Math.PI/2+(Math.random()-.5)*.55;
+    pos[i*3]=Math.cos(a)*r;pos[i*3+1]=(Math.random()-.5)*(.1+r*.07);pos[i*3+2]=Math.sin(a)*r;
+    const core=Math.max(0,1-r/7.5);col[i*3]=.58+core*.4;col[i*3+1]=.65+core*.26;col[i*3+2]=.82+core*.16;
+  }
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  galaxyGroup.add(new THREE.Points(geo,new THREE.PointsMaterial({size:.035,vertexColors:true,transparent:true,opacity:.92,depthWrite:false})));
+  const core=new THREE.Mesh(new THREE.SphereGeometry(.38,24,24),new THREE.MeshBasicMaterial({color:0xffd7a3,transparent:true,opacity:.7}));
+  galaxyGroup.add(core);galaxyGroup.rotation.x=.35;
+}
+buildGalaxy();
 
 function buildPlanet(p){
   if(sphere){group.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose();}
   if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); ringMesh.material.dispose();}
+  if(atmosphereMesh){group.remove(atmosphereMesh);atmosphereMesh.geometry.dispose();atmosphereMesh.material.dispose();atmosphereMesh=null;}
   const tex=makeTexture(p);
   const geo=new THREE.SphereGeometry(p.size,64,64);
   const matOpts={map:tex,roughness:1};
@@ -180,6 +243,12 @@ function buildPlanet(p){
   }
   sphere=new THREE.Mesh(geo,mat);
   group.add(sphere);
+  if(['earth','venus','mars'].includes(p.id)){
+    const ag=new THREE.SphereGeometry(p.size*1.055,48,48);
+    const ac=p.id==='earth'?0x4b9fff:(p.id==='venus'?0xf0c78e:0xe47755);
+    atmosphereMesh=new THREE.Mesh(ag,new THREE.MeshBasicMaterial({color:ac,transparent:true,opacity:p.id==='earth'?.22:.10,side:THREE.BackSide,depthWrite:false}));
+    group.add(atmosphereMesh);
+  }
 
   if(p.rings){
     const rg=new THREE.RingGeometry(p.size*1.4,p.size*2.3,64);
@@ -253,6 +322,7 @@ function animate(){
   autoSpin+=0.0015;
   group.rotation.x+=(rotX-group.rotation.x)*0.08;
   group.rotation.y+=(rotY+autoSpin-group.rotation.y)*0.08;
+  galaxyGroup.rotation.y+=.0007;
   requestAnimationFrame(animate);
   renderer.render(scene,camera);
 }
@@ -281,14 +351,62 @@ document.getElementById('sound-toggle').addEventListener('click',function(){
   soundOn=!soundOn; this.textContent=soundOn?'🔊':'🔇';
   if(soundOn){startAmbient();} else stopAmbient();
 });
-document.querySelectorAll('.scale-tabs span').forEach(el=>{
-  el.addEventListener('click',()=>{
-    document.querySelectorAll('.scale-tabs span').forEach(s=>s.classList.remove('active'));
-    el.classList.add('active'); playClick();
+function renderDock(){
+  const ids=sceneMode==='near'?['earth','moon']:['sun','mercury','venus','earth','mars','jupiter','saturn','uranus','neptune'];
+  document.querySelectorAll('.dock-item').forEach((el,i)=>{
+    el.style.display=ids.includes(PLANETS[i].id)?'flex':'none';
+    el.classList.toggle('active',i===currentIndex);
   });
+  document.getElementById('dock').style.display=sceneMode==='galaxy'?'none':'flex';
+}
+function setMode(mode){
+  sceneMode=mode;
+  document.querySelectorAll('.scale-tabs span').forEach((el,i)=>el.classList.toggle('active',['near','solar','galaxy'][i]===mode));
+  const hint=document.getElementById('rotate-hint');
+  if(mode==='galaxy'){
+    group.visible=false;galaxyGroup.visible=true;
+    document.getElementById('info-tag').textContent='MILKY WAY · 01';
+    document.getElementById('info-name').textContent='银河系';
+    document.getElementById('info-desc').textContent='旋转视角，探索恒星与旋臂构成的银河结构。这里展示的是程序生成的示意模型。';
+    document.getElementById('stat-d').textContent='约 10万光年';
+    document.getElementById('stat-p').textContent='约 2.3亿年';
+    hint.textContent='拖动旋转 · 双指或滚轮缩放';
+  }else{
+    galaxyGroup.visible=false;group.visible=true;
+    const preferred=mode==='near'?'earth':'sun';
+    if(!(mode==='near'?['earth','moon']:['sun','mercury','venus','earth','mars','jupiter','saturn','uranus','neptune']).includes(PLANETS[currentIndex].id)){
+      currentIndex=PLANETS.findIndex(p=>p.id===preferred);
+    }
+    applyPlanet(currentIndex);
+    hint.textContent=mode==='near'?'地月探索 · 拖动旋转':'选择天体 · 拖动旋转';
+  }
+  renderDock();playClick();
+}
+document.querySelectorAll('.scale-tabs span').forEach((el,i)=>{
+  el.setAttribute('role','button');el.setAttribute('tabindex','0');
+  const run=()=>setMode(['near','solar','galaxy'][i]);
+  el.addEventListener('click',run);
+  el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();run();}});
 });
+document.getElementById('reset-view').addEventListener('click',()=>{
+  rotX=.15;rotY=0;camera.position.set(0,0,sceneMode==='galaxy'?13:5);playClick();
+});
+let pinchDistance=0;
+renderer.domElement.addEventListener('touchstart',e=>{
+  if(e.touches.length===2)pinchDistance=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+},{passive:true});
+renderer.domElement.addEventListener('touchmove',e=>{
+  if(e.touches.length===2){
+    e.preventDefault();
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    if(pinchDistance)camera.position.z=Math.max(sceneMode==='galaxy'?7:2.5,Math.min(sceneMode==='galaxy'?22:9,camera.position.z+(pinchDistance-d)*.012));
+    pinchDistance=d;
+  }
+},{passive:false});
+renderer.domElement.addEventListener('touchend',()=>pinchDistance=0,{passive:true});
 
 applyPlanet(currentIndex);
+renderDock();
 startAmbient();
 onResize();
 animate();
