@@ -60,10 +60,10 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
 @keyframes cosmic-bloom{0%{opacity:1;scale:.25}35%{opacity:1;scale:1.25}100%{opacity:0;scale:.3}}
 @keyframes cosmic-ring{0%{opacity:.9;transform:scale(.15)}100%{opacity:0;transform:scale(4.8)}}
 @keyframes cosmic-ray{0%{opacity:0;transform:translate(-50%,-50%) rotate(var(--angle)) translateY(0) scaleY(.2)}25%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) rotate(var(--angle)) translateY(var(--distance)) scaleY(1)}}
-#credits{position:fixed;z-index:8;left:14px;bottom:calc(18px + env(safe-area-inset-bottom,0px));max-width:40vw;
- font-size:9px;line-height:1.5;letter-spacing:.25px;color:rgba(255,255,255,.34);text-decoration:none;pointer-events:auto}
-#credits:active{color:rgba(255,255,255,.7)}
-@media(max-width:600px){#credits{left:10px;bottom:calc(17px + env(safe-area-inset-bottom,0px));font-size:8px;max-width:32vw}}
+#credits{position:fixed;z-index:8;left:14px;bottom:calc(15px + env(safe-area-inset-bottom,0px));max-width:46vw;
+ font-size:8px;line-height:1.65;letter-spacing:.2px;color:rgba(255,255,255,.36);pointer-events:auto}
+#credits a{color:inherit;text-decoration:none}#credits a:active{color:rgba(255,255,255,.8)}
+@media(max-width:600px){#credits{left:10px;bottom:calc(17px + env(safe-area-inset-bottom,0px));font-size:7px;max-width:45vw}}
 @media(max-width:600px){
  #topbar{padding:0 12px;top:calc(12px + env(safe-area-inset-top,0px));}
  .brand{font-size:.65rem;gap:5px;letter-spacing:1px}.brand b{font-size:.82rem;letter-spacing:2px}
@@ -98,8 +98,10 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
 </div>
 <div id="rotate-hint">拖动旋转 · 滚轮缩放</div>
 <div id="dock"></div>
-<a id="credits" href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer"
- title="太阳、水星、金星、火星、木星、土星、天王星、海王星与月球纹理来自 Solar System Scope，依 CC BY 4.0 使用；地球使用 Three.js 示例纹理。">行星纹理：Solar System Scope · CC BY 4.0</a>
+<div id="credits">
+  <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">行星纹理：Solar System Scope · CC BY 4.0</a><br>
+  <a href="https://svs.gsfc.nasa.gov/5069/" target="_blank" rel="noopener noreferrer">陨石表面图：NASA/OSIRIS-REx</a>
+</div>
 
 <script>
 // ---------------- data ----------------
@@ -226,24 +228,32 @@ sun.position.set(3,2,4);
 scene.add(sun);
 
 // starfield background (points)
-let starfieldPoints, starfieldMaterial;
-{
-  const geo=new THREE.BufferGeometry();
-  const N=1900, pos=new Float32Array(N*3);
-  for(let i=0;i<N;i++){
-    const r=26+Math.random()*46, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
-    pos[i*3]=r*Math.sin(ph)*Math.cos(th);
-    pos[i*3+1]=r*Math.sin(ph)*Math.sin(th);
-    pos[i*3+2]=r*Math.cos(ph);
+let starfieldPoints,starfieldMaterial,brightStarPoints,brightStarMaterial,softStarPoints,softStarMaterial;
+const starInteractivePoints=[];
+const starMaterialLayers=[];
+function buildStarLayer(count,size,color,opacity,brightnessSeed){
+  const geo=new THREE.BufferGeometry(),positions=new Float32Array(count*3);
+  for(let i=0;i<count;i++){
+    const r=24+Math.random()*52,theta=Math.random()*Math.PI*2,phi=Math.acos(2*Math.random()-1);
+    positions[i*3]=r*Math.sin(phi)*Math.cos(theta);
+    positions[i*3+1]=r*Math.sin(phi)*Math.sin(theta);
+    positions[i*3+2]=r*Math.cos(phi);
   }
-  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
-  starfieldMaterial=new THREE.PointsMaterial({
-    color:0xe7f3ff,size:0.065,transparent:true,opacity:0.76,depthWrite:false
-  });
-  starfieldPoints=new THREE.Points(geo,starfieldMaterial);
-  starfieldPoints.userData.interactiveStars=true;
-  scene.add(starfieldPoints);
+  geo.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  const material=new THREE.PointsMaterial({color,size,transparent:true,opacity,depthWrite:false,
+    blending:THREE.AdditiveBlending,sizeAttenuation:true});
+  const points=new THREE.Points(geo,material);
+  points.userData.interactiveStars=true;
+  points.userData.brightnessSeed=brightnessSeed;
+  scene.add(points);
+  starInteractivePoints.push(points);
+  starMaterialLayers.push({material,base:opacity,phase:Math.random()*Math.PI*2,amount:.035+Math.random()*.045});
+  return {points,material};
 }
+// One shared starfield is rendered in every scale mode, not only the galaxy view.
+({points:starfieldPoints,material:starfieldMaterial}=buildStarLayer(2600,.055,0xb8cbe6,.56,0));
+({points:softStarPoints,material:softStarMaterial}=buildStarLayer(780,.043,0xffe7cf,.48,1));
+({points:brightStarPoints,material:brightStarMaterial}=buildStarLayer(260,.105,0xdceaff,.88,2));
 
 let sphere, ringMesh, atmosphereMesh, coronaSprite=null, coronaMesh=null;
 let planetBuildToken=0;
@@ -399,6 +409,9 @@ let asteroidClock=0;
 let asteroidIdCounter=0;
 
 let asteroidSurfaceTexture=null;
+let nasaBennuTexture=null;
+let nasaBennuLoadStarted=false;
+const NASA_BENNU_MAP_URL='https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005069/Bennu_global_FB34_FB56_ShapeV28_GndControl_MinnaertPhase30_PAN_8bit_print.jpg';
 function makeAsteroidSurfaceTexture(){
   const canvas=document.createElement('canvas');canvas.width=256;canvas.height=128;
   const ctx=canvas.getContext('2d');
@@ -443,16 +456,53 @@ function getAsteroidSurfaceTexture(){
   if(!asteroidSurfaceTexture)asteroidSurfaceTexture=makeAsteroidSurfaceTexture();
   return asteroidSurfaceTexture;
 }
-function makeRockGeometry(){
-  const geo=new THREE.IcosahedronGeometry(1,2);
+function makeRockGeometry(seed=Math.random()){
+  // A coherent, low-amplitude displacement produces a lumpy boulder silhouette.
+  // Every shared point gets the same displacement, avoiding the old spiky wire-ball appearance.
+  const geo=new THREE.SphereGeometry(1,24,18);
   const a=geo.attributes.position;
   for(let i=0;i<a.count;i++){
-    const s=.78+Math.random()*.42;
-    a.setXYZ(i,a.getX(i)*s,a.getY(i)*s,a.getZ(i)*s);
+    const x=a.getX(i),y=a.getY(i),z=a.getZ(i);
+    const n1=Math.sin(x*5.7+seed*9.1+Math.sin(y*4.3+seed)*.65)*Math.cos(z*6.3-y*2.8);
+    const n2=Math.sin(y*12.4+z*4.7+seed*4.2)*Math.cos(x*9.3-z*5.6);
+    const n3=Math.sin(z*19+x*7.1+seed*3.1)*Math.sin(y*15.2-z*4.8);
+    const radial=1+n1*.095+n2*.034+n3*.012;
+    a.setXYZ(i,x*radial,y*radial,z*radial);
   }
-  a.needsUpdate=true;
+  const uv=geo.attributes.uv;
+  const shiftU=seed*.91,shiftV=(seed*.37)%1;
+  for(let i=0;i<uv.count;i++){uv.setXY(i,uv.getX(i)+shiftU,uv.getY(i)+shiftV);}
+  a.needsUpdate=true;uv.needsUpdate=true;
   geo.computeVertexNormals();
   return geo;
+}
+function installNasaBennuTexture(texture){
+  if(!texture)return;
+  nasaBennuTexture=texture;
+  texture.encoding=THREE.sRGBEncoding;
+  texture.wrapS=THREE.RepeatWrapping;texture.wrapT=THREE.RepeatWrapping;
+  texture.minFilter=THREE.LinearMipmapLinearFilter;texture.magFilter=THREE.LinearFilter;
+  texture.generateMipmaps=true;texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
+  texture.needsUpdate=true;
+  asteroidRecords.forEach(record=>{
+    record.group.children.forEach((mesh,index)=>{
+      if(!mesh.isMesh)return;
+      const mat=mesh.material;
+      if(mat.map===asteroidSurfaceTexture)mat.map=texture;
+      if(mat.bumpMap===asteroidSurfaceTexture)mat.bumpMap=texture;
+      mat.needsUpdate=true;
+    });
+  });
+}
+function loadNasaBennuTexture(){
+  if(nasaBennuLoadStarted)return;
+  nasaBennuLoadStarted=true;
+  const loader=new THREE.TextureLoader();loader.setCrossOrigin('anonymous');
+  loader.load(NASA_BENNU_MAP_URL,texture=>{
+    installNasaBennuTexture(texture);
+  },undefined,error=>{
+    console.warn('NASA Bennu basemap unavailable; using procedural rocky texture.',error);
+  });
 }
 function resetAsteroidMotion(record){
   record.velocity.set((Math.random()-.5)*.105,(Math.random()-.5)*.085,(Math.random()-.5)*.012);
@@ -481,20 +531,21 @@ function layoutAsteroid(record){
 function createAsteroidRecord(){
   const root=new THREE.Group();
   root.userData.isAsteroid=true;
+  const seed=Math.random();
   const rockColors=[0x777d84,0x686e75,0x8d8377,0x555e6c,0x948d83,0x65635e];
   const surface=getAsteroidSurfaceTexture();
-  const main=new THREE.Mesh(makeRockGeometry(),new THREE.MeshStandardMaterial({
-    map:surface,bumpMap:surface,bumpScale:.075,
+  const main=new THREE.Mesh(makeRockGeometry(seed),new THREE.MeshStandardMaterial({
+    map:nasaBennuTexture||surface,bumpMap:nasaBennuTexture||surface,bumpScale:.105,
     color:rockColors[Math.floor(Math.random()*rockColors.length)],
-    roughness:.97,metalness:.015,flatShading:true
+    roughness:.99,metalness:.006,flatShading:false
   }));
   main.userData.asteroidRoot=root;
   root.add(main);
   const chipCount=1+Math.floor(Math.random()*3);
   for(let i=0;i<chipCount;i++){
-    const chip=new THREE.Mesh(makeRockGeometry(),new THREE.MeshStandardMaterial({
-      map:surface,bumpMap:surface,bumpScale:.06,
-      color:rockColors[Math.floor(Math.random()*rockColors.length)],roughness:.98,metalness:.01,flatShading:true
+    const chip=new THREE.Mesh(makeRockGeometry(Math.random()),new THREE.MeshStandardMaterial({
+      map:nasaBennuTexture||surface,bumpMap:nasaBennuTexture||surface,bumpScale:.085,
+      color:rockColors[Math.floor(Math.random()*rockColors.length)],roughness:.99,metalness:.006,flatShading:false
     }));
     const angle=Math.random()*Math.PI*2,rad=.62+Math.random()*.22;
     chip.position.set(Math.cos(angle)*rad,Math.sin(angle)*rad,(Math.random()-.5)*.65);
@@ -505,7 +556,7 @@ function createAsteroidRecord(){
   }
   debrisGroup.add(root);
   const record={
-    id:++asteroidIdCounter,group:root,scale:.085+Math.random()*.105,
+    id:++asteroidIdCounter,group:root,scale:.12+Math.random()*.12,
     velocity:new THREE.Vector3(),spin:new THREE.Vector3(),
     phase:Math.random()*Math.PI*2,active:true,respawnAt:0,planeZ:-.7-Math.random()*1.4
   };
@@ -516,8 +567,9 @@ function createAsteroidRecord(){
   return record;
 }
 function buildAsteroidField(){
-  const count=innerWidth<600?9:15;
+  const count=innerWidth<600?7:12;
   for(let i=0;i<count;i++)createAsteroidRecord();
+  loadNasaBennuTexture();
 }
 function layoutAsteroidField(){
   asteroidRecords.forEach(record=>{if(record.active)layoutAsteroid(record);});
@@ -608,7 +660,9 @@ function updateCosmicEffects(dt,t){
       flyingFragments.splice(i,1);
     }
   }
-  if(starfieldMaterial)starfieldMaterial.opacity=.69+.09*(.5+.5*Math.sin(t*.47));
+  starMaterialLayers.forEach((layer,i)=>{
+    layer.material.opacity=layer.base+layer.amount*(.5+.5*Math.sin(t*(.45+i*.19)+layer.phase));
+  });
 }
 function findAsteroidRoot(obj){
   let node=obj;
@@ -625,7 +679,7 @@ function handleSceneClick(e){
   pointerNdc.y=-((e.clientY-rect.top)/rect.height)*2+1;
   sceneRaycaster.setFromCamera(pointerNdc,camera);
   sceneRaycaster.params.Points.threshold=sceneMode==='galaxy'?.16:.24;
-  const targets=[starfieldPoints];
+  const targets=[...starInteractivePoints];
   if(debrisGroup.visible)targets.push(debrisGroup);
   if(group.visible)targets.push(group);
   if(galaxyGroup.visible)targets.push(...galaxyInteractivePoints);
