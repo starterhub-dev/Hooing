@@ -364,7 +364,7 @@ galaxyGroup.visible=false;
 
 function buildPlanet(p){
   const buildToken=++planetBuildToken;
-  if(sphere){group.remove(sphere); sphere.geometry.dispose(); sphere.material.dispose();}
+  if(sphere){group.remove(sphere); sphere.geometry.dispose(); if(sphere.material.map&&sphere.material.map.image&&sphere.material.map.image.tagName==='CANVAS')sphere.material.map.dispose(); sphere.material.dispose();}
   if(ringMesh){group.remove(ringMesh); ringMesh.geometry.dispose(); if(ringMesh.material.map)ringMesh.material.map.dispose(); ringMesh.material.dispose();ringMesh=null;}
   if(atmosphereMesh){group.remove(atmosphereMesh);atmosphereMesh.geometry.dispose();atmosphereMesh.material.dispose();atmosphereMesh=null;}
   if(coronaSprite){group.remove(coronaSprite);if(coronaSprite.material.map)coronaSprite.material.map.dispose();coronaSprite.material.dispose();coronaSprite=null;}
