@@ -55,6 +55,16 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;
 .cosmic-burst::before,.cosmic-burst::after{content:"";position:absolute;inset:-2px;border:1.5px solid currentColor;border-radius:50%;opacity:0;animation:cosmic-ring .72s cubic-bezier(.1,.65,.2,1) forwards;}
 .cosmic-burst::after{animation-delay:.08s;border-width:1px;}
 .cosmic-burst.asteroid-burst{color:#ffd9ad;width:26px;height:26px;}
+.cosmic-burst.burst-shear{color:#a9ddff;filter:drop-shadow(0 0 8px currentColor);}
+.cosmic-burst.burst-split{color:#ffe4bd;}
+.cosmic-burst.burst-crumble{color:#b9bec8;width:32px;height:32px;}
+.cosmic-burst.burst-shatter{color:#c4d9ff;width:30px;height:30px;}
+.cosmic-burst.burst-shear::before{border-radius:44% 56% 66% 34%;transform:rotate(-28deg) scaleX(1.8);}
+.cosmic-burst.burst-split::after{transform:scaleX(2.4) scaleY(.72);border-style:dashed;}
+.cosmic-burst.burst-crumble::before,.cosmic-burst.burst-crumble::after{border-style:dotted;border-width:2px;}
+.cosmic-burst.burst-shear i{height:13px;animation-duration:.38s;}
+.cosmic-burst.burst-crumble i{width:1px;height:4px;animation-duration:.72s;}
+.cosmic-burst.burst-shatter i{height:11px;width:1px;}
 .cosmic-burst.star-burst{color:#a9dcff;width:17px;height:17px;}
 .cosmic-burst i{position:absolute;left:50%;top:50%;width:2px;height:8px;border-radius:3px;background:currentColor;opacity:0;transform:translate(-50%,-50%) rotate(var(--angle)) translateY(0);animation:cosmic-ray .55s ease-out forwards;animation-delay:var(--delay);}
 @keyframes cosmic-bloom{0%{opacity:1;scale:.25}35%{opacity:1;scale:1.25}100%{opacity:0;scale:.3}}
@@ -456,21 +466,27 @@ function getAsteroidSurfaceTexture(){
   if(!asteroidSurfaceTexture)asteroidSurfaceTexture=makeAsteroidSurfaceTexture();
   return asteroidSurfaceTexture;
 }
-function makeRockGeometry(seed=Math.random()){
-  // A coherent, low-amplitude displacement produces a lumpy boulder silhouette.
-  // Every shared point gets the same displacement, avoiding the old spiky wire-ball appearance.
-  const geo=new THREE.SphereGeometry(1,24,18);
+function makeRockGeometry(seed=Math.random(),profile='rounded'){
+  // Each profile uses a different silhouette and low-frequency displacement, not independent spiky vertices.
+  const angular=profile==='angular';
+  const geo=new THREE.SphereGeometry(1,angular?12:22,angular?9:15);
   const a=geo.attributes.position;
+  const phase=seed*Math.PI*2;
   for(let i=0;i<a.count;i++){
     const x=a.getX(i),y=a.getY(i),z=a.getZ(i);
-    const n1=Math.sin(x*5.7+seed*9.1+Math.sin(y*4.3+seed)*.65)*Math.cos(z*6.3-y*2.8);
-    const n2=Math.sin(y*12.4+z*4.7+seed*4.2)*Math.cos(x*9.3-z*5.6);
-    const n3=Math.sin(z*19+x*7.1+seed*3.1)*Math.sin(y*15.2-z*4.8);
-    const radial=1+n1*.095+n2*.034+n3*.012;
+    const n1=Math.sin(x*4.4+phase+Math.sin(y*3.1+phase*.7)*.7)*Math.cos(z*4.9-y*2.2);
+    const n2=Math.sin(y*7.3+z*3.8+phase*1.7)*Math.cos(x*6.4-z*3.6);
+    const n3=Math.sin(z*11+x*4.2+phase*.6)*Math.sin(y*9.2-z*2.8);
+    const strength=angular?.145:.09;
+    const radial=1+n1*strength+n2*(angular?.055:.035)+n3*.012;
     a.setXYZ(i,x*radial,y*radial,z*radial);
   }
+  if(profile==='elongated')geo.scale(1.48,.72,.82);
+  else if(profile==='flattened')geo.scale(1.12,.64,1.22);
+  else if(profile==='oblong')geo.scale(1.2,.83,.72);
+  else if(profile==='rounded')geo.scale(1,.91,.96);
   const uv=geo.attributes.uv;
-  const shiftU=seed*.91,shiftV=(seed*.37)%1;
+  const shiftU=(seed*.91)%1,shiftV=(seed*.37)%1;
   for(let i=0;i<uv.count;i++){uv.setXY(i,uv.getX(i)+shiftU,uv.getY(i)+shiftV);}
   a.needsUpdate=true;uv.needsUpdate=true;
   geo.computeVertexNormals();
@@ -532,31 +548,57 @@ function createAsteroidRecord(){
   const root=new THREE.Group();
   root.userData.isAsteroid=true;
   const seed=Math.random();
-  const rockColors=[0x777d84,0x686e75,0x8d8377,0x555e6c,0x948d83,0x65635e];
+  const profiles=['rounded','elongated','flattened','angular','oblong','contact'];
+  const profile=profiles[Math.floor(Math.random()*profiles.length)];
+  const rockColors={
+    rounded:[0x847d73,0x777a80,0x918779],
+    elongated:[0x686c72,0x8b8175,0x6b747b],
+    flattened:[0x7f817e,0x77736e,0x9b9385],
+    angular:[0x626972,0x77726b,0x92877b],
+    oblong:[0x676b70,0x858078,0x59636b],
+    contact:[0x77746f,0x8e8173,0x626a71]
+  }[profile];
+  const baseColor=rockColors[Math.floor(Math.random()*rockColors.length)];
   const surface=getAsteroidSurfaceTexture();
-  const main=new THREE.Mesh(makeRockGeometry(seed),new THREE.MeshStandardMaterial({
-    map:nasaBennuTexture||surface,bumpMap:nasaBennuTexture||surface,bumpScale:.105,
-    color:rockColors[Math.floor(Math.random()*rockColors.length)],
-    roughness:.99,metalness:.006,flatShading:false
-  }));
+  const baseMap=nasaBennuTexture||surface;
+  const material=new THREE.MeshStandardMaterial({
+    map:baseMap,bumpMap:baseMap,bumpScale:.10,color:baseColor,
+    roughness:.99,metalness:.006,flatShading:profile==='angular'
+  });
+  const main=new THREE.Mesh(makeRockGeometry(seed,profile==='contact'?'rounded':profile),material);
   main.userData.asteroidRoot=root;
   root.add(main);
-  const chipCount=1+Math.floor(Math.random()*3);
-  for(let i=0;i<chipCount;i++){
-    const chip=new THREE.Mesh(makeRockGeometry(Math.random()),new THREE.MeshStandardMaterial({
-      map:nasaBennuTexture||surface,bumpMap:nasaBennuTexture||surface,bumpScale:.085,
-      color:rockColors[Math.floor(Math.random()*rockColors.length)],roughness:.99,metalness:.006,flatShading:false
+  if(profile==='contact'){
+    // Contact-binary silhouette: two unequal boulder lobes connected at the neck.
+    main.scale.set(.78,.73,.76);
+    const lobeA=new THREE.Mesh(makeRockGeometry(seed+.27,'oblong'),material);
+    lobeA.position.set(-.48,.035,.015);
+    lobeA.scale.setScalar(.68);
+    lobeA.rotation.set(.24,-.45,.17);
+    lobeA.userData.asteroidRoot=root;
+    root.add(lobeA);
+    const lobeB=new THREE.Mesh(makeRockGeometry(seed+.61,'rounded'),material);
+    lobeB.position.set(.43,-.055,.035);
+    lobeB.scale.set(.55,.64,.58);
+    lobeB.rotation.set(-.31,.27,-.12);
+    lobeB.userData.asteroidRoot=root;
+    root.add(lobeB);
+  }else if(Math.random()<.28){
+    // Only some bodies carry attached rubble; most stay as one distinct main mass.
+    const chip=new THREE.Mesh(makeRockGeometry(seed+.41,'angular'),new THREE.MeshStandardMaterial({
+      map:baseMap,bumpMap:baseMap,bumpScale:.075,color:baseColor,
+      roughness:.99,metalness:.006,flatShading:true
     }));
-    const angle=Math.random()*Math.PI*2,rad=.62+Math.random()*.22;
-    chip.position.set(Math.cos(angle)*rad,Math.sin(angle)*rad,(Math.random()-.5)*.65);
-    chip.scale.setScalar(.16+Math.random()*.21);
+    const angle=Math.random()*Math.PI*2;
+    chip.position.set(Math.cos(angle)*.72,Math.sin(angle)*.58,(Math.random()-.5)*.38);
+    chip.scale.setScalar(.19+Math.random()*.17);
     chip.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
     chip.userData.asteroidRoot=root;
     root.add(chip);
   }
   debrisGroup.add(root);
   const record={
-    id:++asteroidIdCounter,group:root,scale:.12+Math.random()*.12,
+    id:++asteroidIdCounter,group:root,profile,baseColor,scale:.105+Math.random()*.15,
     velocity:new THREE.Vector3(),spin:new THREE.Vector3(),
     phase:Math.random()*Math.PI*2,active:true,respawnAt:0,planeZ:-.7-Math.random()*1.4
   };
@@ -574,9 +616,9 @@ function buildAsteroidField(){
 function layoutAsteroidField(){
   asteroidRecords.forEach(record=>{if(record.active)layoutAsteroid(record);});
 }
-function createCosmicBurst(x,y,type){
+function createCosmicBurst(x,y,type,variant='burst'){
   const burst=document.createElement('div');
-  burst.className='cosmic-burst '+(type==='asteroid'?'asteroid-burst':'star-burst');
+  burst.className='cosmic-burst '+(type==='asteroid'?'asteroid-burst burst-'+variant:'star-burst');
   burst.style.left=x+'px';burst.style.top=y+'px';
   for(let i=0;i<8;i++){
     const ray=document.createElement('i');
@@ -588,37 +630,71 @@ function createCosmicBurst(x,y,type){
   fxOverlay.appendChild(burst);
   setTimeout(()=>burst.remove(),900);
 }
-function fractureAsteroid(record,x,y){
+function fractureAsteroid(record,x,y,hitPoint){
   if(!record.active)return;
   const origin=new THREE.Vector3();
   record.group.getWorldPosition(origin);
+  const variant=['burst','split','shear','crumble','shatter'][Math.floor(Math.random()*5)];
+  const impact=hitPoint?hitPoint.clone().sub(origin).normalize():new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize();
+  const tangent=new THREE.Vector3(-impact.y,impact.x,(Math.random()-.5)*.45).normalize();
   record.active=false;
   record.group.visible=false;
-  record.respawnAt=asteroidClock+5+Math.random()*8;
-  const colors=[0x747b83,0x5b626c,0x948575,0xb8a58d,0x4f5866];
-  const count=12+Math.floor(Math.random()*7);
+  record.respawnAt=asteroidClock+5+Math.random()*9;
+  const colors=[record.baseColor||0x747b83,0x747b83,0x5b626c,0x948575,0xb8a58d,0x4f5866];
+  let count,largeCount=0;
+  if(variant==='crumble')count=26+Math.floor(Math.random()*11);
+  else if(variant==='shatter')count=22+Math.floor(Math.random()*12);
+  else if(variant==='shear')count=13+Math.floor(Math.random()*8);
+  else if(variant==='split'){largeCount=3+Math.floor(Math.random()*3);count=largeCount+7+Math.floor(Math.random()*5);}
+  else count=14+Math.floor(Math.random()*10);
   for(let i=0;i<count;i++){
+    const isLarge=variant==='split'&&i<largeCount;
+    const sizeFactor=isLarge?.28+Math.random()*.19:
+      variant==='crumble'?.045+Math.random()*.105:
+      variant==='shear'?.09+Math.random()*.17:
+      variant==='shatter'?.07+Math.random()*.22:.10+Math.random()*.24;
     const material=new THREE.MeshStandardMaterial({
       color:colors[Math.floor(Math.random()*colors.length)],
-      roughness:.98,flatShading:true,transparent:true,opacity:1
+      map:nasaBennuTexture||asteroidSurfaceTexture||null,
+      roughness:.99,flatShading:true,transparent:true,opacity:1
     });
-    const piece=new THREE.Mesh(new THREE.TetrahedronGeometry(1,0),material);
-    piece.scale.setScalar(record.scale*(.12+Math.random()*.28));
+    const geometryChoices=[()=>new THREE.TetrahedronGeometry(1,0),()=>new THREE.OctahedronGeometry(1,0),()=>new THREE.DodecahedronGeometry(1,0)];
+    const geometry=geometryChoices[Math.floor(Math.random()*geometryChoices.length)]();
+    const piece=new THREE.Mesh(geometry,material);
+    piece.scale.setScalar(record.scale*sizeFactor);
     piece.position.copy(origin).add(new THREE.Vector3(
-      (Math.random()-.5)*record.scale*.5,
-      (Math.random()-.5)*record.scale*.5,
-      (Math.random()-.5)*record.scale*.5
+      (Math.random()-.5)*record.scale*.44,
+      (Math.random()-.5)*record.scale*.44,
+      (Math.random()-.5)*record.scale*.44
     ));
-    const velocity=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize();
-    velocity.multiplyScalar(.28+Math.random()*.8);
+    const randomDir=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize();
+    let direction;
+    if(variant==='shear'){
+      direction=tangent.clone().multiplyScalar(.9+Math.random()*.6)
+        .addScaledVector(impact,.18).addScaledVector(randomDir,.34).normalize();
+    }else if(variant==='split'&&isLarge){
+      const axis=i%3;
+      direction=(axis===0?impact.clone():axis===1?tangent.clone():new THREE.Vector3().crossVectors(impact,tangent).normalize());
+      direction.multiplyScalar(Math.random()<.5?-1:1).addScaledVector(randomDir,.16).normalize();
+    }else if(variant==='crumble'){
+      direction=randomDir.multiplyScalar(.28+Math.random()*.42).addScaledVector(impact,.10).normalize();
+    }else{
+      direction=randomDir.multiplyScalar(variant==='shatter'?1.05:.75).addScaledVector(impact,variant==='shatter'?.16:.38).normalize();
+    }
+    const speed=variant==='crumble'?.12+Math.random()*.42:
+      variant==='shear'?.58+Math.random()*.95:
+      isLarge?.25+Math.random()*.45:.30+Math.random()*(variant==='shatter'?1.05:.78);
+    direction.multiplyScalar(speed);
     scene.add(piece);
     flyingFragments.push({
-      mesh:piece,velocity,
-      spin:new THREE.Vector3((Math.random()-.5)*10,(Math.random()-.5)*10,(Math.random()-.5)*10),
-      age:0,life:.55+Math.random()*.55
+      mesh:piece,velocity:direction,
+      spin:new THREE.Vector3((Math.random()-.5)*12,(Math.random()-.5)*12,(Math.random()-.5)*12),
+      age:0,life:variant==='crumble'?.7+Math.random()*.65:
+        variant==='shear'?.5+Math.random()*.65:
+        isLarge?1.0+Math.random()*.6:.52+Math.random()*.72
     });
   }
-  createCosmicBurst(x,y,'asteroid');
+  createCosmicBurst(x,y,'asteroid',variant);
   playClick();
 }
 function updateCosmicEffects(dt,t){
@@ -688,7 +764,7 @@ function handleSceneClick(e){
     const root=findAsteroidRoot(hit.object);
     if(root){
       const record=asteroidRecords.find(r=>r.group===root);
-      if(record&&record.active){fractureAsteroid(record,e.clientX,e.clientY);return;}
+      if(record&&record.active){fractureAsteroid(record,e.clientX,e.clientY,hit.point);return;}
     }
     if(hit.object.userData&&hit.object.userData.interactiveStars){
       createCosmicBurst(e.clientX,e.clientY,'star');
